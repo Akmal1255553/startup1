@@ -1,0 +1,381 @@
+:global(html),
+:global(body) {
+  min-height: 100%;
+  margin: 0;
+  background: #f4f2ed;
+  color: #16211d;
+}
+
+:global(*) {
+  box-sizing: border-box;
+}
+
+.page {
+  min-height: 100vh;
+  background:
+    linear-gradient(135deg, rgba(41, 88, 79, 0.1), transparent 32rem), #f4f2ed;
+}
+
+.hero {
+  min-height: 78vh;
+  padding: 1.25rem clamp(1rem, 4vw, 4.5rem) 3rem;
+}
+
+.nav {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 76rem;
+  min-height: 3.5rem;
+}
+
+.brand,
+.navLink {
+  align-items: center;
+  color: #16211d;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 0.65rem;
+  text-decoration: none;
+}
+
+.brandMark {
+  align-items: center;
+  background: #1c4c43;
+  border-radius: 0.45rem;
+  color: #ffffff;
+  display: inline-flex;
+  height: 2.25rem;
+  justify-content: center;
+  letter-spacing: 0;
+  width: 2.25rem;
+}
+
+.navLink {
+  border: 1px solid rgba(22, 33, 29, 0.16);
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.9rem;
+}
+
+.heroGrid {
+  align-items: center;
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.82fr);
+  margin: 4.5rem auto 0;
+  max-width: 76rem;
+}
+
+.copy {
+  max-width: 42rem;
+}
+
+.eyebrow {
+  color: #2c6f63;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+}
+
+.copy h1,
+.signalSection h2 {
+  color: #16211d;
+  font-size: clamp(2.5rem, 7vw, 5.8rem);
+  letter-spacing: 0;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.signalSection h2 {
+  font-size: clamp(2rem, 4vw, 3.8rem);
+  max-width: 48rem;
+}
+
+.lede {
+  color: #52615c;
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  line-height: 1.6;
+  margin: 1.4rem 0 0;
+  max-width: 38rem;
+}
+
+.formStack {
+  display: grid;
+  gap: 0.8rem;
+  margin: 2rem 0 1rem;
+  max-width: 34rem;
+}
+
+.form {
+  align-items: end;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(13rem, 21rem) auto;
+}
+
+.label {
+  color: #52615c;
+  display: grid;
+  font-size: 0.85rem;
+  font-weight: 700;
+  gap: 0.45rem;
+  text-align: left;
+}
+
+.input {
+  background: #ffffff;
+  border: 1px solid rgba(22, 33, 29, 0.16);
+  border-radius: 0.45rem;
+  color: #16211d;
+  font: inherit;
+  min-height: 3rem;
+  padding: 0 0.9rem;
+  width: 100%;
+}
+
+.button {
+  background: #d65f35;
+  border: 0;
+  border-radius: 0.45rem;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+}
+
+.buttonLink {
+  align-items: center;
+  background: #d65f35;
+  border-radius: 0.45rem;
+  color: #ffffff;
+  display: inline-flex;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.trustList {
+  color: #52615c;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem 1.25rem;
+  list-style: none;
+  margin: 1.1rem 0 0;
+  padding: 0;
+}
+
+.trustList li::before {
+  color: #2c6f63;
+  content: "✓";
+  font-weight: 800;
+  margin-right: 0.35rem;
+}
+
+.productVisual {
+  background: #ffffff;
+  border: 1px solid rgba(22, 33, 29, 0.12);
+  border-radius: 0.5rem;
+  box-shadow: 0 2rem 4.5rem rgba(22, 33, 29, 0.14);
+  min-height: 32rem;
+  overflow: hidden;
+}
+
+.browserBar {
+  align-items: center;
+  background: #16211d;
+  display: flex;
+  gap: 0.45rem;
+  min-height: 2.6rem;
+  padding: 0 1rem;
+}
+
+.browserBar span {
+  background: #f4f2ed;
+  border-radius: 50%;
+  height: 0.7rem;
+  opacity: 0.8;
+  width: 0.7rem;
+}
+
+.previewHeader,
+.scorePanel,
+.caseList {
+  margin: 1.25rem;
+}
+
+.previewHeader,
+.scorePanel,
+.caseRow,
+.metrics,
+.signalGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.previewHeader {
+  align-items: center;
+  grid-template-columns: 1fr auto;
+}
+
+.previewHeader p,
+.scorePanel span,
+.caseRow span,
+.metric span,
+.signal p {
+  color: #52615c;
+  margin: 0;
+}
+
+.previewHeader strong {
+  display: block;
+  font-size: 1.5rem;
+  margin-top: 0.2rem;
+}
+
+.statusPill {
+  background: #e7f3ef;
+  border-radius: 999rem;
+  color: #1c4c43;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.4rem 0.75rem;
+}
+
+.scorePanel {
+  align-items: center;
+  background: #f6f8f4;
+  border: 1px solid rgba(22, 33, 29, 0.08);
+  border-radius: 0.5rem;
+  grid-template-columns: 1fr auto;
+  padding: 1.25rem;
+}
+
+.scorePanel strong {
+  display: block;
+  font-size: 4.5rem;
+  line-height: 1;
+  margin-top: 0.4rem;
+}
+
+.ring {
+  background:
+    radial-gradient(circle at center, #f6f8f4 0 45%, transparent 46%),
+    conic-gradient(#d65f35 0 87%, #d8ded8 87% 100%);
+  border-radius: 50%;
+  height: 8.5rem;
+  width: 8.5rem;
+}
+
+.caseList {
+  gap: 0.75rem;
+}
+
+.caseRow {
+  align-items: center;
+  border: 1px solid rgba(22, 33, 29, 0.08);
+  border-radius: 0.45rem;
+  grid-template-columns: 1fr auto;
+  padding: 0.9rem 1rem;
+}
+
+.caseRow strong {
+  color: #d65f35;
+}
+
+.metrics,
+.signalSection {
+  margin: 0 auto;
+  max-width: 76rem;
+  padding: 0 clamp(1rem, 4vw, 4.5rem) 4rem;
+}
+
+.metrics {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.metric {
+  background: #16211d;
+  border-radius: 0.5rem;
+  color: #ffffff;
+  padding: 1.35rem;
+}
+
+.metric strong {
+  display: block;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.metric span {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.signalSection {
+  display: grid;
+  gap: 2rem;
+}
+
+.signalGrid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.signal {
+  background: #ffffff;
+  border: 1px solid rgba(22, 33, 29, 0.1);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+}
+
+.signal span {
+  background: #d65f35;
+  border-radius: 50%;
+  display: block;
+  height: 0.7rem;
+  margin-bottom: 2rem;
+  width: 0.7rem;
+}
+
+.signal h3 {
+  font-size: 1.1rem;
+  letter-spacing: 0;
+  margin: 0 0 0.65rem;
+}
+
+@media only screen and (max-width: 54rem) {
+  .hero {
+    min-height: auto;
+  }
+
+  .heroGrid,
+  .metrics,
+  .signalGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroGrid {
+    margin-top: 2.5rem;
+  }
+
+  .form {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .productVisual {
+    min-height: auto;
+  }
+
+  .ring {
+    height: 6.5rem;
+    width: 6.5rem;
+  }
+}

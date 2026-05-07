@@ -1,0 +1,13 @@
+╭─ info ───────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│  Using shopify.app.toml for default values:                                  │
+│                                                                              │
+│    • Org:             DevFlow Solutions                                      │
+│    • App:             ReturnGuard-AI                                         │
+│    • Dev store:       store-fbugaeho.myshopify.com                           │
+│    • Update URLs:     Yes                                                    │
+│                                                                              │
+│   You can pass `--reset` to your command to reset your app configuration.    │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

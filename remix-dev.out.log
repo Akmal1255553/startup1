@@ -1,0 +1,9 @@
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m3000[22m/[39m
+[shopify-api/INFO] version 12.3.0, environment Remix
+[2m10:34:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ new dependencies optimized: [33m@remix-run/node, @shopify/shopify-app-remix/adapters/node, @shopify/shopify-app-remix/server, @shopify/shopify-app-session-storage-prisma, @prisma/client[32m[39m
+[2m10:34:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32m✨ optimized dependencies changed. reloading[39m
+[shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/adsad/oauth/install?client_id=dev-api-key | {shop: adsad.myshopify.com}
+[shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/adsad/oauth/install?client_id=dev-api-key | {shop: adsad.myshopify.com}
+[shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/adsad/oauth/install?client_id=dev-api-key | {shop: adsad.myshopify.com}
+[shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/adsad/oauth/install?client_id=dev-api-key | {shop: adsad.myshopify.com}
+[shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/asdasd/oauth/install?client_id=dev-api-key | {shop: asdasd.myshopify.com}
