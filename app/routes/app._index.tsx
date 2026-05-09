@@ -48,8 +48,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Dashboard() {
-  const { orders, summary, error, needsProtectedDataAccess, settings } =
-    useLoaderData<typeof loader>();
+  const {
+    orders,
+    summary,
+    error,
+    needsProtectedDataAccess,
+    settings,
+    recentActions,
+  } = useLoaderData<typeof loader>();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
 
@@ -71,6 +77,18 @@ export default function Dashboard() {
       value: String(summary.holdCount),
       change: `Risk ${settings.holdRiskThreshold}+`,
       tone: "critical",
+    },
+    {
+      label: "Approval ratio",
+      value: `${summary.approvalRatio}%`,
+      change: `${summary.totalReturns} total returns`,
+      tone: "success",
+    },
+    {
+      label: "Flagged returns",
+      value: String(summary.flaggedReturns),
+      change: `${summary.averageRiskScore} avg risk score`,
+      tone: "attention",
     },
   ];
 
@@ -140,7 +158,7 @@ export default function Dashboard() {
           </Card>
         ) : null}
 
-        <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
+        <InlineGrid columns={{ xs: 1, md: 5 }} gap="400">
           {riskCards.map((card) => (
             <Card key={card.label}>
               <BlockStack gap="300">
@@ -269,6 +287,31 @@ export default function Dashboard() {
                     </Box>
                   ))}
                   <Button url="/app/playbooks">Manage playbooks</Button>
+                </BlockStack>
+              </Card>
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Recent actions
+                  </Text>
+                  {recentActions.slice(0, 5).map((action) => (
+                    <InlineStack key={action.id} align="space-between">
+                      <Text as="span" variant="bodySm">
+                        {action.orderName}
+                      </Text>
+                      <Badge
+                        tone={getDecisionTone(action.decision)}
+                        toneAndProgressLabelOverride=" "
+                      >
+                        {getDecisionLabel(action.decision)}
+                      </Badge>
+                    </InlineStack>
+                  ))}
+                  {!recentActions.length ? (
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      No moderation actions yet.
+                    </Text>
+                  ) : null}
                 </BlockStack>
               </Card>
             </BlockStack>

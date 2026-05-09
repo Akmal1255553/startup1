@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { Form, useActionData, useLoaderData } from "@remix-run/react";
+import { Form, useActionData, useLoaderData, useNavigation } from "@remix-run/react";
 import {
   Badge,
   BlockStack,
@@ -8,11 +8,12 @@ import {
   InlineGrid,
   InlineStack,
   Page,
+  RangeSlider,
   Text,
   TextField,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
-import { useState } from "react";
+import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
+import { useEffect, useState } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
@@ -41,6 +42,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function SettingsPage() {
   const { settings } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
+  const shopify = useAppBridge();
+  const [reviewThreshold, setReviewThreshold] = useState(
+    settings.reviewRiskThreshold,
+  );
+  const [holdThreshold, setHoldThreshold] = useState(settings.holdRiskThreshold);
+  const isSaving = navigation.state !== "idle";
+
+  useEffect(() => {
+    if (actionData?.ok) {
+      shopify.toast.show("Risk settings saved");
+    }
+  }, [actionData?.ok, shopify.toast]);
 
   return (
     <Page
@@ -72,29 +86,63 @@ export default function SettingsPage() {
               <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
                 <SettingField
                   label="Manual review risk threshold"
-                  name="reviewRiskThreshold"
-                  value={settings.reviewRiskThreshold}
+                  name={undefined}
+                  value={reviewThreshold}
+                  onChange={(value) => setReviewThreshold(Number(value) || 0)}
                   helpText="Orders at or above this score enter the review queue."
                 />
                 <SettingField
                   label="Refund hold risk threshold"
-                  name="holdRiskThreshold"
-                  value={settings.holdRiskThreshold}
+                  name={undefined}
+                  value={holdThreshold}
+                  onChange={(value) => setHoldThreshold(Number(value) || 0)}
                   helpText="Orders at or above this score should be paused before refunding."
                 />
                 <SettingField
                   label="Medium order value"
                   name="mediumValueThreshold"
                   value={settings.mediumValueThreshold}
+                  onChange={() => {}}
                   prefix="$"
                 />
                 <SettingField
                   label="High order value"
                   name="highValueThreshold"
                   value={settings.highValueThreshold}
+                  onChange={() => {}}
                   prefix="$"
                 />
               </InlineGrid>
+              <RangeSlider
+                label="Manual review threshold"
+                value={reviewThreshold}
+                min={10}
+                max={95}
+                output
+                onChange={(value) =>
+                  setReviewThreshold(Array.isArray(value) ? value[0] : value)
+                }
+              />
+              <RangeSlider
+                label="Hold threshold"
+                value={holdThreshold}
+                min={20}
+                max={99}
+                output
+                onChange={(value) =>
+                  setHoldThreshold(Array.isArray(value) ? value[0] : value)
+                }
+              />
+              <input
+                type="hidden"
+                name="reviewRiskThreshold"
+                value={String(reviewThreshold)}
+              />
+              <input
+                type="hidden"
+                name="holdRiskThreshold"
+                value={String(holdThreshold)}
+              />
             </BlockStack>
           </Card>
 
@@ -108,26 +156,31 @@ export default function SettingsPage() {
                   label="New customer risk delta"
                   name="newCustomerRiskDelta"
                   value={settings.newCustomerRiskDelta}
+                  onChange={() => {}}
                 />
                 <SettingField
                   label="Repeat customer risk delta"
                   name="repeatCustomerRiskDelta"
                   value={settings.repeatCustomerRiskDelta}
+                  onChange={() => {}}
                 />
                 <SettingField
                   label="Unfulfilled order risk delta"
                   name="unfulfilledRiskDelta"
                   value={settings.unfulfilledRiskDelta}
+                  onChange={() => {}}
                 />
                 <SettingField
                   label="Payment review risk delta"
                   name="paymentReviewRiskDelta"
                   value={settings.paymentReviewRiskDelta}
+                  onChange={() => {}}
                 />
                 <SettingField
                   label="Protected margin multiplier"
                   name="protectedMarginMultiplier"
                   value={settings.protectedMarginMultiplier}
+                  onChange={() => {}}
                   helpText="Example: 0.25 means ReturnGuard estimates 25% of flagged GMV as margin at risk."
                 />
               </InlineGrid>
@@ -135,7 +188,7 @@ export default function SettingsPage() {
           </Card>
 
           <InlineStack align="end">
-            <Button submit variant="primary">
+            <Button submit variant="primary" loading={isSaving}>
               Save settings
             </Button>
           </InlineStack>
@@ -149,12 +202,14 @@ function SettingField({
   helpText,
   label,
   name,
+  onChange,
   prefix,
   value,
 }: {
   helpText?: string;
   label: string;
-  name: keyof RiskSettings;
+  name?: keyof RiskSettings;
+  onChange: (value: string) => void;
   prefix?: string;
   value: number;
 }) {
@@ -166,7 +221,10 @@ function SettingField({
       helpText={helpText}
       label={label}
       name={name}
-      onChange={setFieldValue}
+      onChange={(nextValue) => {
+        setFieldValue(nextValue);
+        onChange(nextValue);
+      }}
       prefix={prefix}
       type="number"
       value={fieldValue}

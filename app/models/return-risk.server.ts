@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import type { DashboardData, RiskOrder, RiskSettings } from "./return-risk";
+import { buildRiskOrders } from "./risk-engine.server";
 
 type Money = {
   amount: string;
@@ -17,7 +18,9 @@ type ShopifyOrderNode = {
   };
   customer: {
     displayName: string;
+    email?: string | null;
     numberOfOrders: string;
+    createdAt?: string | null;
   } | null;
 };
 
@@ -27,7 +30,7 @@ type ShopifyAdmin = {
 
 const ORDERS_QUERY = `#graphql
   query ReturnGuardRecentOrders {
-    orders(first: 25, sortKey: CREATED_AT, reverse: true) {
+    orders(first: 50, query: "status:any", sortKey: CREATED_AT, reverse: true) {
       nodes {
         id
         name
@@ -43,6 +46,27 @@ const ORDERS_QUERY = `#graphql
         customer {
           displayName
           numberOfOrders
+          createdAt
+        }
+      }
+    }
+  }
+`;
+
+const ORDERS_FALLBACK_QUERY = `#graphql
+  query ReturnGuardRecentOrdersFallback {
+    orders(first: 50, query: "status:any", sortKey: CREATED_AT, reverse: true) {
+      nodes {
+        id
+        name
+        createdAt
+        displayFinancialStatus
+        displayFulfillmentStatus
+        currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
         }
       }
     }
@@ -106,14 +130,23 @@ export async function updateRiskSettings(shop: string, formData: FormData) {
 
 export async function saveReturnDecision(shop: string, formData: FormData) {
   const orderId = String(formData.get("orderId") || "");
-  const orderName = String(formData.get("orderName") || "");
+  const orderName = String(formData.get("orderName") || "").slice(0, 120);
   const decision = String(formData.get("decision") || "");
-  const risk = Number(formData.get("risk") || 0);
+  const risk = normalizeRisk(formData.get("risk"));
   const allowedDecisions = ["approved", "review", "hold"];
 
   if (!orderId || !allowedDecisions.includes(decision)) {
     return { ok: false, error: "Invalid return decision" };
   }
+
+  const existingDecision = await prisma.returnDecision.findUnique({
+    where: {
+      shop_orderId: {
+        shop,
+        orderId,
+      },
+    },
+  });
 
   await prisma.returnDecision.upsert({
     where: {
@@ -136,7 +169,59 @@ export async function saveReturnDecision(shop: string, formData: FormData) {
     },
   });
 
+  await prisma.returnDecisionEvent.create({
+    data: {
+      shop,
+      orderId,
+      orderName,
+      decision,
+      previousDecision: existingDecision?.decision || null,
+      risk,
+    },
+  });
+
   return { ok: true, decision };
+}
+
+export async function saveBulkReturnDecisions(shop: string, formData: FormData) {
+  const decision = String(formData.get("decision") || "");
+  const orderIds = formData
+    .getAll("orderIds")
+    .map((id) => String(id))
+    .filter((id) => Boolean(id) && id.length < 128)
+    .slice(0, 100);
+  if (!orderIds.length) return { ok: false, error: "No orders selected." };
+  if (!["approved", "review", "hold"].includes(decision)) {
+    return { ok: false, error: "Invalid bulk decision." };
+  }
+
+  const existing = await prisma.returnDecision.findMany({
+    where: { shop, orderId: { in: orderIds } },
+  });
+  const existingMap = new Map(existing.map((item) => [item.orderId, item]));
+
+  await prisma.$transaction([
+    ...orderIds.map((orderId) =>
+      prisma.returnDecision.upsert({
+        where: { shop_orderId: { shop, orderId } },
+        update: { decision },
+        create: { shop, orderId, decision },
+      }),
+    ),
+    ...orderIds.map((orderId) =>
+      prisma.returnDecisionEvent.create({
+        data: {
+          shop,
+          orderId,
+          orderName: existingMap.get(orderId)?.orderName || orderId,
+          decision,
+          previousDecision: existingMap.get(orderId)?.decision || null,
+        },
+      }),
+    ),
+  ]);
+
+  return { ok: true, count: orderIds.length };
 }
 
 export async function loadReturnRiskData(
@@ -146,16 +231,7 @@ export async function loadReturnRiskData(
   const settings = await getRiskSettings(shop);
 
   try {
-    const response = await admin.graphql(ORDERS_QUERY);
-    const payload = (await response.json()) as {
-      data?: { orders?: { nodes?: ShopifyOrderNode[] } };
-      errors?: Array<{
-        message: string;
-        extensions?: {
-          code?: string;
-        };
-      }>;
-    };
+    const payload = await loadOrdersWithFallback(admin);
 
     if (payload.errors?.length) {
       const firstError = payload.errors[0];
@@ -174,29 +250,48 @@ export async function loadReturnRiskData(
         );
       }
 
-      return buildDashboardData([], settings, firstError?.message);
+      return buildDashboardData(
+        [],
+        settings,
+        firstError?.message || "Unable to load Shopify orders",
+      );
     }
 
-    const orders = (payload.data?.orders?.nodes || []).map((order) =>
-      mapOrderToRisk(order, settings),
-    );
-    const decisions = await prisma.returnDecision.findMany({
-      where: {
-        shop,
-        orderId: {
-          in: orders.map((order) => order.id),
+    const rawOrders = payload.data?.orders?.nodes || [];
+    const [decisions, playbooks, recentActions] = await Promise.all([
+      prisma.returnDecision.findMany({
+        where: {
+          shop,
+          orderId: {
+            in: rawOrders.map((order) => order.id),
+          },
         },
-      },
-    });
-    const decisionByOrderId = new Map(
-      decisions.map((decision) => [decision.orderId, decision.decision]),
-    );
-    const ordersWithDecisions = orders.map((order) => ({
-      ...order,
-      savedDecision: decisionByOrderId.get(order.id) || null,
-    }));
+      }),
+      prisma.playbook.findMany({
+        where: { shop, isActive: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.returnDecisionEvent.findMany({
+        where: { shop },
+        orderBy: { createdAt: "desc" },
+        take: 12,
+      }),
+    ]);
 
-    return buildDashboardData(ordersWithDecisions, settings, null);
+    const orders = buildRiskOrders(rawOrders, settings, playbooks, decisions);
+    const detectedOrders = orders.length ? orders.length : await loadOrderCount(admin);
+
+    return buildDashboardData(orders, settings, null, {
+      detectedOrders,
+      recentActions: recentActions.map((action) => ({
+        id: action.id,
+        orderName: action.orderName || action.orderId,
+        decision: action.decision,
+        risk: action.risk,
+        createdAt: action.createdAt.toISOString(),
+        previousDecision: action.previousDecision || null,
+      })),
+    });
   } catch (error) {
     return buildDashboardData(
       [],
@@ -204,6 +299,56 @@ export async function loadReturnRiskData(
       error instanceof Error ? error.message : "Unable to load Shopify orders",
     );
   }
+}
+
+async function loadOrdersWithFallback(admin: ShopifyAdmin) {
+  const response = await admin.graphql(ORDERS_QUERY);
+  const payload = (await response.json()) as {
+    data?: { orders?: { nodes?: ShopifyOrderNode[] } };
+    errors?: Array<{
+      message: string;
+      extensions?: { code?: string };
+    }>;
+  };
+
+  if (!payload.errors?.length) {
+    console.log(
+      "[ReturnGuard] orders primary ok",
+      payload.data?.orders?.nodes?.length || 0,
+    );
+    return payload;
+  }
+
+  console.log("[ReturnGuard] orders primary errors", payload.errors);
+
+  // If protected customer fields are blocked, retry with a minimal orders query.
+  const fallbackResponse = await admin.graphql(ORDERS_FALLBACK_QUERY);
+  const fallbackPayload = (await fallbackResponse.json()) as {
+    data?: { orders?: { nodes?: ShopifyOrderNode[] } };
+    errors?: Array<{
+      message: string;
+      extensions?: { code?: string };
+    }>;
+  };
+
+  if (!fallbackPayload.errors?.length) {
+    console.log(
+      "[ReturnGuard] orders fallback ok",
+      fallbackPayload.data?.orders?.nodes?.length || 0,
+    );
+    return {
+      data: fallbackPayload.data,
+      errors: undefined,
+    };
+  }
+
+  console.log(
+    "[ReturnGuard] orders fallback result",
+    fallbackPayload.errors,
+    fallbackPayload.data?.orders?.nodes?.length || 0,
+  );
+
+  return payload;
 }
 
 function parseSettings(formData: FormData): RiskSettings {
@@ -258,14 +403,14 @@ function parseSettings(formData: FormData): RiskSettings {
 
 function readInt(formData: FormData, key: string, fallback: number) {
   const value = Number(formData.get(key));
-
-  return Number.isFinite(value) ? Math.round(value) : fallback;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.round(value));
 }
 
 function readNumber(formData: FormData, key: string, fallback: number) {
   const value = Number(formData.get(key));
-
-  return Number.isFinite(value) ? value : fallback;
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, value);
 }
 
 async function loadOrderCount(admin: ShopifyAdmin) {
@@ -288,6 +433,7 @@ function buildDashboardData(
   options: {
     detectedOrders?: number;
     needsProtectedDataAccess?: boolean;
+    recentActions?: DashboardData["recentActions"];
   } = {},
 ): DashboardData {
   const protectedMargin = orders
@@ -310,6 +456,10 @@ function buildDashboardData(
   const averageRisk = orders.length
     ? orders.reduce((sum, order) => sum + order.risk, 0) / orders.length
     : 0;
+  const approvedCount = orders.filter(
+    (order) => order.savedDecision === "approved",
+  ).length;
+  const flaggedReturns = reviewCount + holdCount;
 
   return {
     orders,
@@ -325,78 +475,21 @@ function buildDashboardData(
         ? Math.max(68, Math.round(100 - averageRisk / 3))
         : 0,
       detectedOrders: options.detectedOrders ?? orders.length,
+      totalReturns: orders.length,
+      flaggedReturns,
+      approvalRatio: orders.length
+        ? Math.round((approvedCount / orders.length) * 100)
+        : 0,
+      averageRiskScore: Math.round(averageRisk),
     },
+    recentActions: options.recentActions || [],
     error,
     needsProtectedDataAccess: options.needsProtectedDataAccess || false,
   };
 }
 
-function mapOrderToRisk(
-  order: ShopifyOrderNode,
-  settings: RiskSettings,
-): RiskOrder {
-  const money = order.currentTotalPriceSet.shopMoney;
-  const value = Number(money.amount);
-  const customerOrders = Number(order.customer?.numberOfOrders || 0);
-  const financialStatus = order.displayFinancialStatus || "Unknown payment";
-  const fulfillmentStatus = order.displayFulfillmentStatus || "Unfulfilled";
-  const factors: string[] = [];
-  let risk = 18;
-
-  if (value >= settings.highValueThreshold) {
-    risk += 34;
-    factors.push("high value");
-  } else if (value >= settings.mediumValueThreshold) {
-    risk += 18;
-    factors.push("medium value");
-  } else {
-    factors.push("low value");
-  }
-
-  if (!financialStatus.toLowerCase().includes("paid")) {
-    risk += settings.paymentReviewRiskDelta;
-    factors.push("payment review");
-  }
-
-  if (!fulfillmentStatus.toLowerCase().includes("fulfilled")) {
-    risk += settings.unfulfilledRiskDelta;
-    factors.push("not fulfilled");
-  }
-
-  if (customerOrders >= 5) {
-    risk += settings.repeatCustomerRiskDelta;
-    factors.push("repeat customer");
-  } else if (customerOrders <= 1) {
-    risk += settings.newCustomerRiskDelta;
-    factors.push("new customer");
-  }
-
-  const normalizedRisk = Math.min(96, Math.max(8, risk));
-
-  return {
-    id: order.id,
-    adminPath: `shopify:admin/orders/${getNumericId(order.id)}`,
-    name: order.name,
-    createdAt: order.createdAt,
-    customer: order.customer?.displayName || "Guest checkout",
-    customerOrders,
-    value,
-    currencyCode: money.currencyCode,
-    financialStatus,
-    fulfillmentStatus,
-    risk: normalizedRisk,
-    recommendation: getRecommendation(normalizedRisk, settings),
-    factors,
-    savedDecision: null,
-  };
-}
-
-function getRecommendation(risk: number, settings: RiskSettings) {
-  if (risk >= settings.holdRiskThreshold) return "Hold refund";
-  if (risk >= settings.reviewRiskThreshold) return "Manual review";
-  return "Approve automatically";
-}
-
-function getNumericId(gid: string) {
-  return gid.split("/").pop() || gid;
+function normalizeRisk(value: FormDataEntryValue | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
 }

@@ -17,6 +17,8 @@ export type RiskOrder = {
   createdAt: string;
   customer: string;
   customerOrders: number;
+  email: string | null;
+  accountAgeDays: number | null;
   value: number;
   currencyCode: string;
   financialStatus: string;
@@ -24,6 +26,12 @@ export type RiskOrder = {
   risk: number;
   recommendation: string;
   factors: string[];
+  riskReasons: Array<{
+    label: string;
+    points: number;
+    category: "value" | "payment" | "fulfillment" | "customer" | "playbook";
+  }>;
+  appliedPlaybooks: string[];
   savedDecision: string | null;
 };
 
@@ -39,7 +47,19 @@ export type DashboardData = {
     analyzedOrders: number;
     confidence: number;
     detectedOrders: number;
+    totalReturns: number;
+    flaggedReturns: number;
+    approvalRatio: number;
+    averageRiskScore: number;
   };
+  recentActions: Array<{
+    id: string;
+    orderName: string;
+    decision: string;
+    risk: number | null;
+    createdAt: string;
+    previousDecision: string | null;
+  }>;
   error: string | null;
   needsProtectedDataAccess: boolean;
 };

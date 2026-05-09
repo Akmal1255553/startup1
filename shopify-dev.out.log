@@ -48,3 +48,11 @@ No pending migrations to apply.
 [shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/store-fbugaeho/oauth/install?client_id=0b558248ba23abd6861a0a76702f8325 | {shop: store-fbugaeho.myshopify.com}
 [shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/store-fbugaeho/oauth/install?client_id=0b558248ba23abd6861a0a76702f8325 | {shop: store-fbugaeho.myshopify.com}
 [shopify-app/INFO] Redirecting login request to https://admin.shopify.com/store/store-fbugaeho/oauth/install?client_id=0b558248ba23abd6861a0a76702f8325 | {shop: store-fbugaeho.myshopify.com}
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [34m[2m(ssr)[22m[39m [32mpage reload [39m[2mapp/routes/_index/styles.module.css[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/_index/route.tsx[22m
+[2m14:24:01[22m [36m[1m[vite][22m[39m [34m[2m(ssr)[22m[39m [32mpage reload [39m[2mapp/routes/_index/route.tsx[22m
