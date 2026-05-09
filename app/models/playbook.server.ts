@@ -1,4 +1,15 @@
 import prisma from "../db.server";
+import {
+  ValidationError,
+  readBool,
+  readEnum,
+  readNullableInt,
+  readString,
+} from "../lib/validation.server";
+import {
+  actionSuccess,
+  type ActionResult,
+} from "../lib/action-result";
 
 export type PlaybookAction = "approved" | "review" | "hold";
 
@@ -14,6 +25,8 @@ export type PlaybookInput = {
   vipBypassEnabled: boolean;
 };
 
+const ALLOWED_ACTIONS = ["approved", "review", "hold"] as const;
+
 export async function listPlaybooks(shop: string) {
   return prisma.playbook.findMany({
     where: { shop },
@@ -21,98 +34,106 @@ export async function listPlaybooks(shop: string) {
   });
 }
 
-export async function createPlaybook(shop: string, formData: FormData) {
+export async function createPlaybook(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ id: string }>> {
   const input = parsePlaybookInput(formData);
-  await prisma.playbook.create({
-    data: {
-      shop,
-      ...input,
-    },
+  const created = await prisma.playbook.create({
+    data: { shop, ...input },
+    select: { id: true },
   });
+  return actionSuccess(created, { toast: "Playbook created" });
 }
 
-export async function updatePlaybook(shop: string, formData: FormData) {
-  const id = readRequiredString(formData, "id");
+export async function updatePlaybook(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ id: string }>> {
+  const id = readString(formData, "id", { required: true, max: 64 });
   const input = parsePlaybookInput(formData);
-  await prisma.playbook.updateMany({
+  const result = await prisma.playbook.updateMany({
     where: { id, shop },
     data: input,
   });
+  if (result.count === 0) {
+    throw new ValidationError("Playbook not found.");
+  }
+  return actionSuccess({ id }, { toast: "Playbook updated" });
 }
 
-export async function togglePlaybook(shop: string, formData: FormData) {
-  const id = readRequiredString(formData, "id");
-  const nextValue = readBoolean(formData.get("isActive"));
-  await prisma.playbook.updateMany({
+export async function togglePlaybook(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ id: string; isActive: boolean }>> {
+  const id = readString(formData, "id", { required: true, max: 64 });
+  const isActive = readBool(formData, "isActive");
+  const result = await prisma.playbook.updateMany({
     where: { id, shop },
-    data: { isActive: nextValue },
+    data: { isActive },
+  });
+  if (result.count === 0) {
+    throw new ValidationError("Playbook not found.");
+  }
+  return actionSuccess({ id, isActive }, {
+    toast: isActive ? "Playbook activated" : "Playbook paused",
   });
 }
 
-export async function deletePlaybook(shop: string, formData: FormData) {
-  const id = readRequiredString(formData, "id");
-  await prisma.playbook.deleteMany({
+export async function deletePlaybook(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ id: string }>> {
+  const id = readString(formData, "id", { required: true, max: 64 });
+  const result = await prisma.playbook.deleteMany({
     where: { id, shop },
   });
+  if (result.count === 0) {
+    throw new ValidationError("Playbook not found.");
+  }
+  return actionSuccess({ id }, { toast: "Playbook deleted" });
 }
 
 function parsePlaybookInput(formData: FormData): PlaybookInput {
-  const action = readAction(formData.get("action"));
-  const name = readRequiredString(formData, "name");
+  const action = readEnum<PlaybookAction>(formData, "action", ALLOWED_ACTIONS, {
+    required: true,
+  });
+  // `required: true` guarantees a non-null value, but TS narrowing keeps null
+  // in the union — assert for the rest of the function.
+  if (!action) {
+    throw new ValidationError("Missing playbook action.", {
+      action: "Required",
+    });
+  }
+
+  const name = readString(formData, "name", {
+    required: true,
+    max: 80,
+    min: 2,
+  });
+
   return {
-    name: name.slice(0, 80),
-    notes: String(formData.get("notes") || "").trim().slice(0, 500),
-    isActive: readBoolean(formData.get("isActive"), true),
+    name,
+    notes: readString(formData, "notes", { max: 500 }),
+    isActive: readBool(formData, "isActive", { default: true }),
     action,
-    minOrderValue: readNullableInt(formData.get("minOrderValue"), {
+    minOrderValue: readNullableInt(formData, "minOrderValue", {
       min: 0,
       max: 1_000_000,
     }),
     suspiciousDomainsCsv: normalizeDomainsCsv(
-      String(formData.get("suspiciousDomainsCsv") || ""),
+      readString(formData, "suspiciousDomainsCsv", { max: 500 }),
     ),
-    repeatReturnsThreshold: readNullableInt(
-      formData.get("repeatReturnsThreshold"),
-      { min: 1, max: 1000 },
-    ),
-    minAccountAgeDays: readNullableInt(formData.get("minAccountAgeDays"), {
+    repeatReturnsThreshold: readNullableInt(formData, "repeatReturnsThreshold", {
+      min: 1,
+      max: 1000,
+    }),
+    minAccountAgeDays: readNullableInt(formData, "minAccountAgeDays", {
       min: 0,
       max: 36500,
     }),
-    vipBypassEnabled: readBoolean(formData.get("vipBypassEnabled")),
+    vipBypassEnabled: readBool(formData, "vipBypassEnabled"),
   };
-}
-
-function readRequiredString(formData: FormData, key: string) {
-  const value = String(formData.get(key) || "").trim();
-  if (!value) {
-    throw new Response(`Missing "${key}"`, { status: 400 });
-  }
-  return value;
-}
-
-function readNullableInt(
-  value: FormDataEntryValue | null,
-  bounds: { min: number; max: number },
-) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
-  const normalized = Math.round(parsed);
-  return Math.max(bounds.min, Math.min(bounds.max, normalized));
-}
-
-function readBoolean(value: FormDataEntryValue | null, fallback = false) {
-  if (value === null) return fallback;
-  const normalized = String(value).toLowerCase();
-  return normalized === "true" || normalized === "1" || normalized === "on";
-}
-
-function readAction(value: FormDataEntryValue | null): PlaybookAction {
-  const normalized = String(value || "");
-  if (normalized === "approved") return "approved";
-  if (normalized === "review") return "review";
-  if (normalized === "hold") return "hold";
-  throw new Response("Invalid playbook action", { status: 400 });
 }
 
 function normalizeDomainsCsv(value: string) {

@@ -21,12 +21,24 @@ export default function App() {
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
       <NavMenu>
-        <Link to="/app" rel="home">
+        <Link to="/app" rel="home" prefetch="intent">
           Dashboard
         </Link>
-        <Link to="/app/returns">Returns Queue</Link>
-        <Link to="/app/playbooks">Playbooks</Link>
-        <Link to="/app/settings">Settings</Link>
+        <Link to="/app/returns" prefetch="intent">
+          Returns Queue
+        </Link>
+        <Link to="/app/analytics" prefetch="intent">
+          Analytics
+        </Link>
+        <Link to="/app/playbooks" prefetch="intent">
+          Playbooks
+        </Link>
+        <Link to="/app/settings" prefetch="intent">
+          Settings
+        </Link>
+        <Link to="/app/billing" prefetch="intent">
+          Billing
+        </Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

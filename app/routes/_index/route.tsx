@@ -1,4 +1,8 @@
-import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
+import type {
+  HeadersFunction,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "@remix-run/node";
 import { redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 
@@ -14,6 +18,14 @@ export const meta: MetaFunction = () => [
       "ReturnGuard AI helps Shopify teams flag risky returns, protect margins, and keep refunds moving fast.",
   },
 ];
+
+/**
+ * Public marketing route. No per-user data, no auth — safe to cache.
+ * 5 min browser cache, 10 min CDN edge cache.
+ */
+export const headers: HeadersFunction = () => ({
+  "Cache-Control": "public, max-age=300, s-maxage=600",
+});
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);

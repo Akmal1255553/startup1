@@ -122,10 +122,10 @@ export default function Dashboard() {
       primaryAction={
         topRiskOrder
           ? {
-              content: "Open highest risk order",
-              url: topRiskOrder.adminPath,
-              target: "_blank",
-            }
+            content: "Open highest risk order",
+            url: topRiskOrder.adminPath,
+            target: "_blank",
+          }
           : { content: "Waiting for orders", disabled: true }
       }
       secondaryActions={[

@@ -1,6 +1,13 @@
 import prisma from "../db.server";
 import type { DashboardData, RiskOrder, RiskSettings } from "./return-risk";
-import { buildRiskOrders } from "./risk-engine.server";
+import { buildRiskOrders, summarizeOrders } from "./risk-engine.server";
+import {
+  ValidationError,
+  readEnum,
+  readString,
+  readStringArray,
+} from "../lib/validation.server";
+import { actionSuccess, type ActionResult } from "../lib/action-result";
 
 type Money = {
   amount: string;
@@ -128,45 +135,31 @@ export async function updateRiskSettings(shop: string, formData: FormData) {
   return settings;
 }
 
-export async function saveReturnDecision(shop: string, formData: FormData) {
-  const orderId = String(formData.get("orderId") || "");
-  const orderName = String(formData.get("orderName") || "").slice(0, 120);
-  const decision = String(formData.get("decision") || "");
-  const risk = normalizeRisk(formData.get("risk"));
-  const allowedDecisions = ["approved", "review", "hold"];
+const DECISION_VALUES = ["approved", "review", "hold"] as const;
+type DecisionValue = (typeof DECISION_VALUES)[number];
 
-  if (!orderId || !allowedDecisions.includes(decision)) {
-    return { ok: false, error: "Invalid return decision" };
+export async function saveReturnDecision(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ decision: DecisionValue }>> {
+  const orderId = readString(formData, "orderId", { required: true, max: 256 });
+  const orderName = readString(formData, "orderName", { max: 120 });
+  const decision = readEnum<DecisionValue>(formData, "decision", DECISION_VALUES, {
+    required: true,
+  });
+  if (!decision) {
+    throw new ValidationError("Invalid decision.", { decision: "Required" });
   }
+  const risk = normalizeRisk(formData.get("risk"));
 
   const existingDecision = await prisma.returnDecision.findUnique({
-    where: {
-      shop_orderId: {
-        shop,
-        orderId,
-      },
-    },
+    where: { shop_orderId: { shop, orderId } },
   });
 
   await prisma.returnDecision.upsert({
-    where: {
-      shop_orderId: {
-        shop,
-        orderId,
-      },
-    },
-    update: {
-      decision,
-      orderName,
-      risk,
-    },
-    create: {
-      shop,
-      orderId,
-      orderName,
-      decision,
-      risk,
-    },
+    where: { shop_orderId: { shop, orderId } },
+    update: { decision, orderName, risk },
+    create: { shop, orderId, orderName, decision, risk },
   });
 
   await prisma.returnDecisionEvent.create({
@@ -180,19 +173,47 @@ export async function saveReturnDecision(shop: string, formData: FormData) {
     },
   });
 
-  return { ok: true, decision };
+  return actionSuccess({ decision }, { toast: "Decision saved" });
 }
 
-export async function saveBulkReturnDecisions(shop: string, formData: FormData) {
-  const decision = String(formData.get("decision") || "");
-  const orderIds = formData
-    .getAll("orderIds")
-    .map((id) => String(id))
-    .filter((id) => Boolean(id) && id.length < 128)
-    .slice(0, 100);
-  if (!orderIds.length) return { ok: false, error: "No orders selected." };
-  if (!["approved", "review", "hold"].includes(decision)) {
-    return { ok: false, error: "Invalid bulk decision." };
+export async function deleteDecisionEvent(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ removed: number }>> {
+  const eventId = readString(formData, "eventId", { required: true, max: 128 });
+
+  const result = await prisma.returnDecisionEvent.deleteMany({
+    where: { id: eventId, shop },
+  });
+
+  if (result.count === 0) {
+    throw new ValidationError("History entry not found.");
+  }
+
+  return actionSuccess(
+    { removed: result.count },
+    { toast: "History entry removed" },
+  );
+}
+
+export async function saveBulkReturnDecisions(
+  shop: string,
+  formData: FormData,
+): Promise<ActionResult<{ count: number }>> {
+  const decision = readEnum<DecisionValue>(formData, "decision", DECISION_VALUES, {
+    required: true,
+  });
+  if (!decision) {
+    throw new ValidationError("Invalid bulk decision.", {
+      decision: "Required",
+    });
+  }
+  const orderIds = readStringArray(formData, "orderIds", {
+    max: 100,
+    itemMax: 128,
+  });
+  if (!orderIds.length) {
+    throw new ValidationError("No orders selected.");
   }
 
   const existing = await prisma.returnDecision.findMany({
@@ -221,7 +242,10 @@ export async function saveBulkReturnDecisions(shop: string, formData: FormData) 
     ),
   ]);
 
-  return { ok: true, count: orderIds.length };
+  return actionSuccess(
+    { count: orderIds.length },
+    { toast: `Updated ${orderIds.length} orders` },
+  );
 }
 
 export async function loadReturnRiskData(
@@ -436,52 +460,12 @@ function buildDashboardData(
     recentActions?: DashboardData["recentActions"];
   } = {},
 ): DashboardData {
-  const protectedMargin = orders
-    .filter((order) => order.risk >= settings.reviewRiskThreshold)
-    .reduce(
-      (sum, order) => sum + order.value * settings.protectedMarginMultiplier,
-      0,
-    );
-  const reviewCount = orders.filter(
-    (order) =>
-      order.risk >= settings.reviewRiskThreshold &&
-      order.risk < settings.holdRiskThreshold,
-  ).length;
-  const holdCount = orders.filter(
-    (order) => order.risk >= settings.holdRiskThreshold,
-  ).length;
-  const autoApprovedCount = orders.filter(
-    (order) => order.risk < settings.reviewRiskThreshold,
-  ).length;
-  const averageRisk = orders.length
-    ? orders.reduce((sum, order) => sum + order.risk, 0) / orders.length
-    : 0;
-  const approvedCount = orders.filter(
-    (order) => order.savedDecision === "approved",
-  ).length;
-  const flaggedReturns = reviewCount + holdCount;
-
   return {
     orders,
     settings,
-    summary: {
-      protectedMargin,
-      reviewCount,
-      holdCount,
-      autoApprovedCount,
-      currencyCode: orders[0]?.currencyCode || "USD",
-      analyzedOrders: orders.length,
-      confidence: orders.length
-        ? Math.max(68, Math.round(100 - averageRisk / 3))
-        : 0,
-      detectedOrders: options.detectedOrders ?? orders.length,
-      totalReturns: orders.length,
-      flaggedReturns,
-      approvalRatio: orders.length
-        ? Math.round((approvedCount / orders.length) * 100)
-        : 0,
-      averageRiskScore: Math.round(averageRisk),
-    },
+    summary: summarizeOrders(orders, settings, {
+      detectedOrders: options.detectedOrders,
+    }),
     recentActions: options.recentActions || [],
     error,
     needsProtectedDataAccess: options.needsProtectedDataAccess || false,

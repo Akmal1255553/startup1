@@ -1,5 +1,11 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import {
+  useFetcher,
+  useLoaderData,
+  useNavigate,
+  useNavigation,
+  useSearchParams,
+} from "@remix-run/react";
 import {
   Badge,
   BlockStack,
@@ -22,101 +28,202 @@ import { useEffect, useMemo, useState } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
-  loadReturnRiskData,
+  deleteDecisionEvent,
   saveBulkReturnDecisions,
   saveReturnDecision,
 } from "../models/return-risk.server";
+import {
+  loadReturnsQueuePage,
+  type ReturnsQueueParams,
+} from "../models/returns-queue.server";
 import {
   getDecisionLabel,
   getDecisionTone,
   getMoneyFormatter,
   type RiskOrder,
 } from "../models/return-risk";
+import {
+  readSafeFormData,
+  toActionFailure,
+} from "../lib/validation.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const url = new URL(request.url);
+  const params: ReturnsQueueParams = {
+    cursor: url.searchParams.get("cursor"),
+    direction: parseDirection(url.searchParams.get("direction")),
+    query: url.searchParams.get("q"),
+    pageSize: Number(url.searchParams.get("pageSize")) || null,
+  };
 
-  return loadReturnRiskData(admin, session.shop);
+  return loadReturnsQueuePage(admin, session.shop, params);
 };
+
+function parseDirection(
+  value: string | null,
+): "next" | "prev" | null {
+  if (value === "next" || value === "prev") return value;
+  return null;
+}
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") || "single");
-  if (intent === "bulk") {
-    return saveBulkReturnDecisions(session.shop, formData);
+  let formData: FormData;
+  try {
+    formData = await readSafeFormData(request);
+  } catch (error) {
+    return toActionFailure(error);
   }
-  return saveReturnDecision(session.shop, formData);
+
+  const intent = String(formData.get("intent") || "single");
+  try {
+    if (intent === "bulk") {
+      return await saveBulkReturnDecisions(session.shop, formData);
+    }
+    if (intent === "delete-event") {
+      return await deleteDecisionEvent(session.shop, formData);
+    }
+    return await saveReturnDecision(session.shop, formData);
+  } catch (error) {
+    return toActionFailure(error);
+  }
 };
 
 export default function ReturnsQueuePage() {
-  const { orders, summary, settings, error, recentActions } =
-    useLoaderData<typeof loader>();
+  const {
+    orders,
+    summary,
+    settings,
+    error,
+    recentActions,
+    pageInfo,
+    searchQuery,
+    pageSize,
+  } = useLoaderData<typeof loader>();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const navigation = useNavigation();
+  const isLoading = navigation.state === "loading";
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
-  const [queryValue, setQueryValue] = useState("");
+
+  const [searchValue, setSearchValue] = useState(searchQuery);
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [sortValue, setSortValue] = useState("risk_desc");
-  const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const pageSize = 10;
+
+  // Keep local search input in sync if user navigates via cursor with same query.
+  useEffect(() => {
+    setSearchValue(searchQuery);
+  }, [searchQuery]);
+
+  // Clear bulk selection on page change to avoid acting on hidden orders.
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [orders]);
 
   const filteredOrders = useMemo(
-    () => applyFilters(orders, selectedFilter, queryValue, settings),
-    [orders, queryValue, selectedFilter, settings],
+    () => applyFilters(orders, selectedFilter, settings),
+    [orders, selectedFilter, settings],
   );
   const sortedOrders = useMemo(
     () => applySort(filteredOrders, sortValue),
     [filteredOrders, sortValue],
   );
-  const pageCount = Math.max(1, Math.ceil(sortedOrders.length / pageSize));
-  const safePage = Math.min(currentPage, pageCount);
-  const pagedOrders = sortedOrders.slice(
-    (safePage - 1) * pageSize,
-    safePage * pageSize,
-  );
 
-  const rows = pagedOrders.map((order) => [
-    <BlockStack key={`${order.id}-order`} gap="050">
-      <InlineStack gap="200" blockAlign="center">
-        <Checkbox
-          label=""
-          checked={selectedIds.includes(order.id)}
-          onChange={(next) =>
-            setSelectedIds((current) =>
-              next
-                ? [...current, order.id]
-                : current.filter((id) => id !== order.id),
-            )
-          }
-        />
-        <Button url={order.adminPath} target="_blank" variant="plain">
-          {order.name}
-        </Button>
-      </InlineStack>
-      <Text as="span" variant="bodySm" tone="subdued">
-        {new Date(order.createdAt).toLocaleDateString("en-US")}
-      </Text>
-    </BlockStack>,
-    <BlockStack key={`${order.id}-customer`} gap="050">
-      <Text as="span" variant="bodyMd">
-        {order.customer}
-      </Text>
-      <Text as="span" variant="bodySm" tone="subdued">
-        {order.customerOrders} lifetime orders
-      </Text>
-    </BlockStack>,
-    moneyFormatter.format(order.value),
-    <RiskMeter key={`${order.id}-risk`} order={order} />,
-    <BlockStack key={`${order.id}-reason`} gap="100">
-      <Text as="span" variant="bodyMd">
-        {order.recommendation}
-      </Text>
-      <Text as="span" variant="bodySm" tone="subdued">
-        {order.factors.slice(0, 2).join(", ")}
-      </Text>
-    </BlockStack>,
-    <DecisionControls key={`${order.id}-decision`} order={order} />,
-  ]);
+  const navigateWithParams = (overrides: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === null || value === "") {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+    }
+    navigate(`?${next.toString()}`);
+  };
+
+  const handleSearchSubmit = () => {
+    navigateWithParams({
+      q: searchValue.trim() || null,
+      cursor: null,
+      direction: null,
+    });
+  };
+
+  const handlePageSizeChange = (next: string) => {
+    navigateWithParams({
+      pageSize: next,
+      cursor: null,
+      direction: null,
+    });
+  };
+
+  const handleNextPage = () => {
+    if (!pageInfo.hasNextPage || !pageInfo.endCursor) return;
+    navigateWithParams({
+      cursor: pageInfo.endCursor,
+      direction: "next",
+    });
+  };
+
+  const handlePreviousPage = () => {
+    if (!pageInfo.hasPreviousPage || !pageInfo.startCursor) return;
+    navigateWithParams({
+      cursor: pageInfo.startCursor,
+      direction: "prev",
+    });
+  };
+
+  // Memoizing the row builder avoids reconstructing the React element tree
+  // on unrelated state changes (search input, sort dropdown, etc.).
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const rows = useMemo(
+    () =>
+      sortedOrders.map((order) => [
+        <BlockStack key={`${order.id}-order`} gap="050">
+          <InlineStack gap="200" blockAlign="center">
+            <Checkbox
+              label=""
+              checked={selectedIdSet.has(order.id)}
+              onChange={(next) =>
+                setSelectedIds((current) =>
+                  next
+                    ? [...current, order.id]
+                    : current.filter((id) => id !== order.id),
+                )
+              }
+            />
+            <Button url={order.adminPath} target="_blank" variant="plain">
+              {order.name}
+            </Button>
+          </InlineStack>
+          <Text as="span" variant="bodySm" tone="subdued">
+            {new Date(order.createdAt).toLocaleDateString("en-US")}
+          </Text>
+        </BlockStack>,
+        <BlockStack key={`${order.id}-customer`} gap="050">
+          <Text as="span" variant="bodyMd">
+            {order.customer}
+          </Text>
+          <Text as="span" variant="bodySm" tone="subdued">
+            {order.customerOrders} lifetime orders
+          </Text>
+        </BlockStack>,
+        moneyFormatter.format(order.value),
+        <RiskMeter key={`${order.id}-risk`} order={order} />,
+        <BlockStack key={`${order.id}-reason`} gap="100">
+          <Text as="span" variant="bodyMd">
+            {order.recommendation}
+          </Text>
+          <Text as="span" variant="bodySm" tone="subdued">
+            {order.factors.slice(0, 2).join(", ")}
+          </Text>
+        </BlockStack>,
+        <DecisionControls key={`${order.id}-decision`} order={order} />,
+      ]),
+    [sortedOrders, selectedIdSet, moneyFormatter],
+  );
 
   return (
     <Page
@@ -143,33 +250,38 @@ export default function ReturnsQueuePage() {
         <Card>
           <BlockStack gap="300">
             <InlineStack align="space-between" blockAlign="center">
-              <TextField
-                label="Search queue"
-                labelHidden
-                placeholder="Search by order, customer, email"
-                autoComplete="off"
-                value={queryValue}
-                onChange={(value) => {
-                  setQueryValue(value);
-                  setCurrentPage(1);
-                }}
-              />
+              <Box minWidth="320px">
+                <TextField
+                  label="Search queue"
+                  labelHidden
+                  placeholder="Search by order name (e.g. #1001)"
+                  autoComplete="off"
+                  value={searchValue}
+                  onChange={setSearchValue}
+                  onBlur={handleSearchSubmit}
+                  connectedRight={
+                    <Button
+                      onClick={handleSearchSubmit}
+                      loading={isLoading && navigation.location?.search.includes("q=")}
+                    >
+                      Search
+                    </Button>
+                  }
+                />
+              </Box>
               <InlineStack gap="200">
                 <Select
                   label="Filter"
                   labelHidden
                   options={[
-                    { label: "All", value: "all" },
+                    { label: "All on this page", value: "all" },
                     { label: "Hold", value: "hold" },
                     { label: "Review", value: "review" },
                     { label: "Approved", value: "approved" },
                     { label: "Undecided", value: "undecided" },
                   ]}
                   value={selectedFilter}
-                  onChange={(value) => {
-                    setSelectedFilter(value);
-                    setCurrentPage(1);
-                  }}
+                  onChange={setSelectedFilter}
                 />
                 <Select
                   label="Sort"
@@ -184,8 +296,40 @@ export default function ReturnsQueuePage() {
                   value={sortValue}
                   onChange={setSortValue}
                 />
+                <Select
+                  label="Page size"
+                  labelHidden
+                  options={[
+                    { label: "10 per page", value: "10" },
+                    { label: "25 per page", value: "25" },
+                    { label: "50 per page", value: "50" },
+                    { label: "100 per page", value: "100" },
+                  ]}
+                  value={String(pageSize)}
+                  onChange={handlePageSizeChange}
+                />
               </InlineStack>
             </InlineStack>
+            {searchQuery ? (
+              <InlineStack gap="200" blockAlign="center">
+                <Text as="span" variant="bodySm" tone="subdued">
+                  Filtered by Shopify search: "{searchQuery}"
+                </Text>
+                <Button
+                  variant="plain"
+                  onClick={() => {
+                    setSearchValue("");
+                    navigateWithParams({
+                      q: null,
+                      cursor: null,
+                      direction: null,
+                    });
+                  }}
+                >
+                  Clear
+                </Button>
+              </InlineStack>
+            ) : null}
           </BlockStack>
         </Card>
 
@@ -197,8 +341,8 @@ export default function ReturnsQueuePage() {
                   Review workload
                 </Text>
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  Showing {pagedOrders.length} of {sortedOrders.length} filtered
-                  Shopify orders.
+                  Showing {sortedOrders.length} of {orders.length} on this page
+                  ({pageSize} per page).
                 </Text>
               </BlockStack>
               <Badge tone="attention" toneAndProgressLabelOverride=" ">
@@ -206,7 +350,7 @@ export default function ReturnsQueuePage() {
               </Badge>
             </InlineStack>
 
-            {filteredOrders.length ? (
+            {sortedOrders.length ? (
               <DataTable
                 columnContentTypes={[
                   "text",
@@ -234,7 +378,9 @@ export default function ReturnsQueuePage() {
                 borderRadius="200"
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  No orders match this queue filter.
+                  {orders.length
+                    ? "No orders on this page match the local filter."
+                    : "No orders found for this query. Try clearing the search or moving to the previous page."}
                 </Text>
               </Box>
             )}
@@ -242,36 +388,29 @@ export default function ReturnsQueuePage() {
             <InlineStack align="space-between" blockAlign="center">
               <BulkDecisionControls selectedIds={selectedIds} />
               <Pagination
-                hasPrevious={safePage > 1}
-                onPrevious={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                hasNext={safePage < pageCount}
-                onNext={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
+                hasPrevious={pageInfo.hasPreviousPage}
+                onPrevious={handlePreviousPage}
+                hasNext={pageInfo.hasNextPage}
+                onNext={handleNextPage}
               />
             </InlineStack>
           </BlockStack>
         </Card>
         <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">
-              Recent decision history
-            </Text>
+          <BlockStack gap="300">
+            <InlineStack align="space-between" blockAlign="center">
+              <Text as="h2" variant="headingMd">
+                Recent decision history
+              </Text>
+              <Text as="span" variant="bodySm" tone="subdued">
+                {recentActions.length
+                  ? `${recentActions.length} entries`
+                  : "No entries"}
+              </Text>
+            </InlineStack>
             {recentActions.length ? (
-              recentActions.map((action) => (
-                <InlineStack key={action.id} align="space-between">
-                  <Text as="p" variant="bodyMd">
-                    {action.orderName}
-                  </Text>
-                  <InlineStack gap="200">
-                    {action.previousDecision ? (
-                      <Badge tone="attention" toneAndProgressLabelOverride=" ">
-                        {getDecisionLabel(action.previousDecision)}
-                      </Badge>
-                    ) : null}
-                    <Badge tone={getDecisionTone(action.decision)} toneAndProgressLabelOverride=" ">
-                      {getDecisionLabel(action.decision)}
-                    </Badge>
-                  </InlineStack>
-                </InlineStack>
+              recentActions.map((entry) => (
+                <DecisionHistoryRow key={entry.id} entry={entry} />
               ))
             ) : (
               <Text as="p" variant="bodyMd" tone="subdued">
@@ -288,24 +427,14 @@ export default function ReturnsQueuePage() {
 function applyFilters(
   orders: RiskOrder[],
   filter: string,
-  query: string,
   settings: { reviewRiskThreshold: number; holdRiskThreshold: number },
 ) {
-  const lowered = query.trim().toLowerCase();
-  const searched = lowered
-    ? orders.filter((order) =>
-        `${order.name} ${order.customer} ${order.email || ""}`
-          .toLowerCase()
-          .includes(lowered),
-      )
-    : orders;
-
   if (filter === "hold") {
-    return searched.filter((order) => order.risk >= settings.holdRiskThreshold);
+    return orders.filter((order) => order.risk >= settings.holdRiskThreshold);
   }
 
   if (filter === "review") {
-    return searched.filter(
+    return orders.filter(
       (order) =>
         order.risk >= settings.reviewRiskThreshold &&
         order.risk < settings.holdRiskThreshold,
@@ -313,14 +442,14 @@ function applyFilters(
   }
 
   if (filter === "approved") {
-    return searched.filter((order) => order.savedDecision === "approved");
+    return orders.filter((order) => order.savedDecision === "approved");
   }
 
   if (filter === "undecided") {
-    return searched.filter((order) => !order.savedDecision);
+    return orders.filter((order) => !order.savedDecision);
   }
 
-  return searched;
+  return orders;
 }
 
 function applySort(orders: RiskOrder[], sort: string) {
@@ -543,5 +672,73 @@ function BulkForm({
         {label}
       </Button>
     </fetcher.Form>
+  );
+}
+
+type DecisionHistoryEntry = {
+  id: string;
+  orderName: string;
+  decision: string;
+  previousDecision: string | null;
+  createdAt: string;
+  risk: number | null;
+};
+
+function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
+  const fetcher = useFetcher<typeof action>();
+  const shopify = useAppBridge();
+  const isDeleting = fetcher.state !== "idle";
+
+  useEffect(() => {
+    if (fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
+      shopify.toast.show("History entry removed");
+    }
+  }, [fetcher.data, shopify.toast]);
+
+  return (
+    <InlineStack align="space-between" blockAlign="center" gap="300">
+      <BlockStack gap="050">
+        <Text as="p" variant="bodyMd">
+          {entry.orderName}
+        </Text>
+        <Text as="span" variant="bodySm" tone="subdued">
+          {new Date(entry.createdAt).toLocaleString("en-US")}
+        </Text>
+      </BlockStack>
+      <InlineStack gap="200" blockAlign="center">
+        {entry.previousDecision ? (
+          <Badge tone="attention" toneAndProgressLabelOverride=" ">
+            {getDecisionLabel(entry.previousDecision)}
+          </Badge>
+        ) : null}
+        <Badge
+          tone={getDecisionTone(entry.decision)}
+          toneAndProgressLabelOverride=" "
+        >
+          {getDecisionLabel(entry.decision)}
+        </Badge>
+        <fetcher.Form
+          method="post"
+          onSubmit={(event) => {
+            if (!window.confirm("Remove this history entry?")) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <input type="hidden" name="intent" value="delete-event" />
+          <input type="hidden" name="eventId" value={entry.id} />
+          <Button
+            submit
+            accessibilityLabel="Delete history entry"
+            tone="critical"
+            variant="tertiary"
+            size="micro"
+            loading={isDeleting}
+          >
+            Delete
+          </Button>
+        </fetcher.Form>
+      </InlineStack>
+    </InlineStack>
   );
 }

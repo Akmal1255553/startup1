@@ -1,5 +1,15 @@
 import type { Playbook, ReturnDecision } from "@prisma/client";
-import type { RiskOrder, RiskSettings } from "./return-risk";
+import type { DashboardData, RiskOrder, RiskSettings } from "./return-risk";
+
+/**
+ * Minimum projection of a saved decision needed by the risk engine.
+ * Lets callers use a Prisma `select` to load only `{ orderId, decision }`
+ * instead of full ReturnDecision rows.
+ */
+export type SavedDecisionProjection = Pick<
+  ReturnDecision,
+  "orderId" | "decision"
+>;
 
 type ShopifyOrderNode = {
   id: string;
@@ -32,7 +42,7 @@ export function buildRiskOrders(
   orders: ShopifyOrderNode[],
   settings: RiskSettings,
   playbooks: Playbook[],
-  decisions: ReturnDecision[],
+  decisions: SavedDecisionProjection[],
 ): RiskOrder[] {
   const decisionByOrderId = new Map(
     decisions.map((decision) => [decision.orderId, decision.decision]),
@@ -211,4 +221,54 @@ function getAccountAgeDays(createdAt: string | null) {
   if (!Number.isFinite(created)) return null;
   const diffMs = Date.now() - created;
   return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+}
+
+export function summarizeOrders(
+  orders: RiskOrder[],
+  settings: RiskSettings,
+  options: { detectedOrders?: number } = {},
+): DashboardData["summary"] {
+  const protectedMargin = orders
+    .filter((order) => order.risk >= settings.reviewRiskThreshold)
+    .reduce(
+      (sum, order) => sum + order.value * settings.protectedMarginMultiplier,
+      0,
+    );
+  const reviewCount = orders.filter(
+    (order) =>
+      order.risk >= settings.reviewRiskThreshold &&
+      order.risk < settings.holdRiskThreshold,
+  ).length;
+  const holdCount = orders.filter(
+    (order) => order.risk >= settings.holdRiskThreshold,
+  ).length;
+  const autoApprovedCount = orders.filter(
+    (order) => order.risk < settings.reviewRiskThreshold,
+  ).length;
+  const averageRisk = orders.length
+    ? orders.reduce((sum, order) => sum + order.risk, 0) / orders.length
+    : 0;
+  const approvedCount = orders.filter(
+    (order) => order.savedDecision === "approved",
+  ).length;
+  const flaggedReturns = reviewCount + holdCount;
+
+  return {
+    protectedMargin,
+    reviewCount,
+    holdCount,
+    autoApprovedCount,
+    currencyCode: orders[0]?.currencyCode || "USD",
+    analyzedOrders: orders.length,
+    confidence: orders.length
+      ? Math.max(68, Math.round(100 - averageRisk / 3))
+      : 0,
+    detectedOrders: options.detectedOrders ?? orders.length,
+    totalReturns: orders.length,
+    flaggedReturns,
+    approvalRatio: orders.length
+      ? Math.round((approvedCount / orders.length) * 100)
+      : 0,
+    averageRiskScore: Math.round(averageRisk),
+  };
 }

@@ -25,6 +25,11 @@ import {
   togglePlaybook,
   updatePlaybook,
 } from "../models/playbook.server";
+import {
+  readSafeFormData,
+  toActionFailure,
+} from "../lib/validation.server";
+import { actionFailure, getFieldError } from "../lib/action-result";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -34,20 +39,30 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await readSafeFormData(request);
+  } catch (error) {
+    return toActionFailure(error);
+  }
+
   const intent = String(formData.get("intent") || "");
   try {
-    if (intent === "create") await createPlaybook(session.shop, formData);
-    else if (intent === "update") await updatePlaybook(session.shop, formData);
-    else if (intent === "toggle") await togglePlaybook(session.shop, formData);
-    else if (intent === "delete") await deletePlaybook(session.shop, formData);
-    else return { ok: false, error: "Unknown action intent." };
-    return { ok: true };
+    if (intent === "create") {
+      return await createPlaybook(session.shop, formData);
+    }
+    if (intent === "update") {
+      return await updatePlaybook(session.shop, formData);
+    }
+    if (intent === "toggle") {
+      return await togglePlaybook(session.shop, formData);
+    }
+    if (intent === "delete") {
+      return await deletePlaybook(session.shop, formData);
+    }
+    return actionFailure("Unknown action intent.");
   } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Action failed",
-    };
+    return toActionFailure(error);
   }
 };
 
@@ -61,7 +76,9 @@ export default function PlaybooksPage() {
   const { playbooks } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const actionError =
-    actionData && "error" in actionData ? actionData.error : null;
+    actionData && actionData.ok === false ? actionData.error : null;
+  const nameError = getFieldError(actionData, "name");
+  const actionFieldError = getFieldError(actionData, "action");
   const shopify = useAppBridge();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
@@ -70,10 +87,10 @@ export default function PlaybooksPage() {
   const [vipBypass, setVipBypass] = useState(false);
 
   useEffect(() => {
-    if (actionData?.ok) {
-      shopify.toast.show("Playbook saved");
+    if (actionData && actionData.ok && actionData.toast) {
+      shopify.toast.show(actionData.toast);
     }
-  }, [actionData?.ok, shopify.toast]);
+  }, [actionData, shopify.toast]);
 
   return (
     <Page
@@ -233,8 +250,20 @@ export default function PlaybooksPage() {
               <BlockStack gap="300">
                 <input type="hidden" name="intent" value="create" />
                 <Text as="h2" variant="headingMd">Create playbook</Text>
-                <TextField label="Playbook name" name="name" autoComplete="off" />
-                <Select label="Automated action" name="action" options={actionOptions} value={createAction} onChange={setCreateAction} />
+                <TextField
+                  label="Playbook name"
+                  name="name"
+                  autoComplete="off"
+                  error={nameError}
+                />
+                <Select
+                  label="Automated action"
+                  name="action"
+                  options={actionOptions}
+                  value={createAction}
+                  onChange={setCreateAction}
+                  error={actionFieldError}
+                />
                 <TextField label="Minimum order value" name="minOrderValue" type="number" autoComplete="off" />
                 <TextField label="Repeat returns threshold" name="repeatReturnsThreshold" type="number" autoComplete="off" />
                 <TextField label="Minimum account age (days)" name="minAccountAgeDays" type="number" autoComplete="off" />
