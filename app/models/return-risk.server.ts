@@ -143,7 +143,9 @@ export async function saveReturnDecision(
   formData: FormData,
 ): Promise<ActionResult<{ decision: DecisionValue }>> {
   const orderId = readString(formData, "orderId", { required: true, max: 256 });
-  const orderName = readString(formData, "orderName", { max: 120 });
+  const orderNameRaw = readString(formData, "orderName", { max: 120 });
+  const returnId = readString(formData, "returnId", { max: 256 }) || null;
+  const returnName = readString(formData, "returnName", { max: 160 });
   const decision = readEnum<DecisionValue>(formData, "decision", DECISION_VALUES, {
     required: true,
   });
@@ -152,21 +154,45 @@ export async function saveReturnDecision(
   }
   const risk = normalizeRisk(formData.get("risk"));
 
-  const existingDecision = await prisma.returnDecision.findUnique({
-    where: { shop_orderId: { shop, orderId } },
-  });
+  const displayOrderName =
+    returnId && returnName && orderNameRaw
+      ? `${orderNameRaw} · ${returnName}`
+      : returnId && returnName
+        ? returnName
+        : orderNameRaw || null;
 
-  await prisma.returnDecision.upsert({
-    where: { shop_orderId: { shop, orderId } },
-    update: { decision, orderName, risk },
-    create: { shop, orderId, orderName, decision, risk },
-  });
+  const existingDecision = await findReturnDecisionSubject(shop, orderId, returnId);
+
+  if (existingDecision) {
+    await prisma.returnDecision.update({
+      where: { id: existingDecision.id },
+      data: {
+        decision,
+        orderName: displayOrderName ?? existingDecision.orderName,
+        risk,
+        orderId,
+        returnId,
+      },
+    });
+  } else {
+    await prisma.returnDecision.create({
+      data: {
+        shop,
+        orderId,
+        returnId,
+        orderName: displayOrderName,
+        decision,
+        risk,
+      },
+    });
+  }
 
   await prisma.returnDecisionEvent.create({
     data: {
       shop,
       orderId,
-      orderName,
+      returnId,
+      orderName: displayOrderName,
       decision,
       previousDecision: existingDecision?.decision || null,
       risk,
@@ -208,43 +234,85 @@ export async function saveBulkReturnDecisions(
       decision: "Required",
     });
   }
-  const orderIds = readStringArray(formData, "orderIds", {
+  const orderIds = readStringArray(formData, "bulkOrderIds", {
     max: 100,
-    itemMax: 128,
+    itemMax: 256,
   });
+  const returnIdSlots = formData
+    .getAll("bulkReturnIds")
+    .map((value) => String(value).trim())
+    .slice(0, 100);
+
   if (!orderIds.length) {
-    throw new ValidationError("No orders selected.");
+    throw new ValidationError("No rows selected.", {
+      bulkOrderIds: "Select at least one return",
+    });
+  }
+  if (returnIdSlots.length !== orderIds.length) {
+    throw new ValidationError("Bulk form payload was corrupted — try again.", {
+      bulkOrderIds: "Mismatched row count",
+    });
   }
 
-  const existing = await prisma.returnDecision.findMany({
-    where: { shop, orderId: { in: orderIds } },
-  });
-  const existingMap = new Map(existing.map((item) => [item.orderId, item]));
+  const subjects: Array<{ orderId: string; returnId: string | null }> =
+    orderIds.map((oid, index) => ({
+      orderId: oid,
+      returnId: returnIdSlots[index] || null,
+    }));
 
-  await prisma.$transaction([
-    ...orderIds.map((orderId) =>
-      prisma.returnDecision.upsert({
-        where: { shop_orderId: { shop, orderId } },
-        update: { decision },
-        create: { shop, orderId, decision },
-      }),
-    ),
-    ...orderIds.map((orderId) =>
-      prisma.returnDecisionEvent.create({
-        data: {
-          shop,
-          orderId,
-          orderName: existingMap.get(orderId)?.orderName || orderId,
-          decision,
-          previousDecision: existingMap.get(orderId)?.decision || null,
-        },
-      }),
-    ),
-  ]);
+  const orClause = subjects.map((subject) =>
+    subject.returnId
+      ? ({ returnId: subject.returnId } as const)
+      : ({ orderId: subject.orderId, returnId: null } as const),
+  );
+
+  const existingRows = await prisma.returnDecision.findMany({
+    where: { shop, OR: orClause },
+  });
+  const existingMap = new Map(
+    existingRows.map((row) => [
+      returnDecisionSubjectKey(row.orderId, row.returnId),
+      row,
+    ]),
+  );
+
+  const tx = subjects.flatMap((subject) => {
+    const key = returnDecisionSubjectKey(subject.orderId, subject.returnId);
+    const prev = existingMap.get(key);
+
+    const decisionRow = prev
+      ? prisma.returnDecision.update({
+          where: { id: prev.id },
+          data: { decision, orderId: subject.orderId },
+        })
+      : prisma.returnDecision.create({
+          data: {
+            shop,
+            orderId: subject.orderId,
+            returnId: subject.returnId,
+            decision,
+          },
+        });
+
+    const eventRow = prisma.returnDecisionEvent.create({
+      data: {
+        shop,
+        orderId: subject.orderId,
+        returnId: subject.returnId,
+        orderName: prev?.orderName || subject.orderId,
+        decision,
+        previousDecision: prev?.decision || null,
+      },
+    });
+
+    return [decisionRow, eventRow];
+  });
+
+  await prisma.$transaction(tx);
 
   return actionSuccess(
-    { count: orderIds.length },
-    { toast: `Updated ${orderIds.length} orders` },
+    { count: subjects.length },
+    { toast: `Updated ${subjects.length} return row(s)` },
   );
 }
 
@@ -289,7 +357,9 @@ export async function loadReturnRiskData(
           orderId: {
             in: rawOrders.map((order) => order.id),
           },
+          returnId: null,
         },
+        select: { orderId: true, decision: true, returnId: true },
       }),
       prisma.playbook.findMany({
         where: { shop, isActive: true },
@@ -476,4 +546,21 @@ function normalizeRisk(value: FormDataEntryValue | null) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function returnDecisionSubjectKey(orderId: string, returnId: string | null) {
+  return returnId ?? `ORDER:${orderId}`;
+}
+
+async function findReturnDecisionSubject(
+  shop: string,
+  orderId: string,
+  returnId: string | null,
+) {
+  if (returnId) {
+    return prisma.returnDecision.findFirst({ where: { shop, returnId } });
+  }
+  return prisma.returnDecision.findFirst({
+    where: { shop, orderId, returnId: null },
+  });
 }

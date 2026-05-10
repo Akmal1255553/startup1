@@ -11,7 +11,15 @@ export type RiskSettings = {
 };
 
 export type RiskOrder = {
+  /** Row id: Shopify Return GID in the returns queue, Order GID on the dashboard. */
   id: string;
+  /** Parent order GID — always set. */
+  orderId: string;
+  /** Set when this row is backed by a Shopify Return (queue). */
+  returnId: string | null;
+  returnName: string | null;
+  returnStatus: string | null;
+  returnQuantity: number | null;
   adminPath: string;
   name: string;
   createdAt: string;

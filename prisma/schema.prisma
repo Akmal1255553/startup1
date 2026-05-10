@@ -37,13 +37,15 @@ model ReturnDecision {
   id        String   @id @default(cuid())
   shop      String
   orderId   String
+  returnId  String?
   orderName String?
   decision  String
   risk      Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([shop, orderId])
+  @@index([shop, orderId, returnId])
+  @@index([shop, returnId])
   @@index([shop])
 }
 
@@ -51,6 +53,7 @@ model ReturnDecisionEvent {
   id               String   @id @default(cuid())
   shop             String
   orderId          String
+  returnId         String?
   orderName        String?
   previousDecision String?
   decision         String
@@ -60,6 +63,7 @@ model ReturnDecisionEvent {
 
   @@index([shop, createdAt])
   @@index([shop, orderId])
+  @@index([shop, returnId])
 }
 
 model Playbook {

@@ -8,7 +8,7 @@ import type { DashboardData, RiskOrder, RiskSettings } from "./return-risk";
  */
 export type SavedDecisionProjection = Pick<
   ReturnDecision,
-  "orderId" | "decision"
+  "orderId" | "decision" | "returnId"
 >;
 
 type ShopifyOrderNode = {
@@ -45,14 +45,54 @@ export function buildRiskOrders(
   decisions: SavedDecisionProjection[],
 ): RiskOrder[] {
   const decisionByOrderId = new Map(
-    decisions.map((decision) => [decision.orderId, decision.decision]),
+    decisions
+      .filter((row) => row.returnId === null || row.returnId === undefined)
+      .map((row) => [row.orderId, row.decision]),
   );
 
   return orders.map((order) => {
     const computed = scoreOrder(order, settings, playbooks);
     return {
       ...computed,
-      savedDecision: decisionByOrderId.get(computed.id) || computed.savedDecision,
+      orderId: order.id,
+      id: order.id,
+      returnId: null,
+      returnName: null,
+      returnStatus: null,
+      returnQuantity: null,
+      savedDecision:
+        decisionByOrderId.get(order.id) ?? computed.savedDecision,
+    };
+  });
+}
+
+/**
+ * Apply DB decisions to risk rows. Return-specific decisions override
+ * order-only decisions; both override playbook suggestions when present.
+ */
+export function mergeSavedDecisionsOntoRiskOrders(
+  rows: RiskOrder[],
+  decisions: SavedDecisionProjection[],
+): RiskOrder[] {
+  const byReturn = new Map(
+    decisions
+      .filter((row) => Boolean(row.returnId))
+      .map((row) => [row.returnId as string, row.decision]),
+  );
+  const byOrderOnly = new Map(
+    decisions
+      .filter((row) => !row.returnId)
+      .map((row) => [row.orderId, row.decision]),
+  );
+
+  return rows.map((row) => {
+    const fromDb =
+      (row.returnId ? byReturn.get(row.returnId) : undefined) ??
+      byOrderOnly.get(row.orderId);
+
+    return {
+      ...row,
+      savedDecision: fromDb ?? row.savedDecision,
     };
   });
 }
@@ -134,6 +174,11 @@ function scoreOrder(
   const normalizedRisk = Math.min(96, Math.max(8, risk));
   return {
     id: order.id,
+    orderId: order.id,
+    returnId: null,
+    returnName: null,
+    returnStatus: null,
+    returnQuantity: null,
     adminPath: `shopify:admin/orders/${getNumericId(order.id)}`,
     name: order.name,
     createdAt: order.createdAt,

@@ -100,6 +100,7 @@ export default function ReturnsQueuePage() {
     pageInfo,
     searchQuery,
     pageSize,
+    sourceOrderCount,
   } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -129,6 +130,11 @@ export default function ReturnsQueuePage() {
   const sortedOrders = useMemo(
     () => applySort(filteredOrders, sortValue),
     [filteredOrders, sortValue],
+  );
+
+  const selectedRows = useMemo(
+    () => sortedOrders.filter((row) => selectedIds.includes(row.id)),
+    [sortedOrders, selectedIds],
   );
 
   const navigateWithParams = (overrides: Record<string, string | null>) => {
@@ -182,7 +188,7 @@ export default function ReturnsQueuePage() {
     () =>
       sortedOrders.map((order) => [
         <BlockStack key={`${order.id}-order`} gap="050">
-          <InlineStack gap="200" blockAlign="center">
+          <InlineStack gap="200" blockAlign="start">
             <Checkbox
               label=""
               checked={selectedIdSet.has(order.id)}
@@ -194,12 +200,28 @@ export default function ReturnsQueuePage() {
                 )
               }
             />
-            <Button url={order.adminPath} target="_blank" variant="plain">
-              {order.name}
-            </Button>
+            <BlockStack gap="050">
+              <InlineStack gap="200" blockAlign="center">
+                <Text as="p" variant="bodyMd">
+                  <strong>{order.returnName ?? "Return"}</strong>
+                  {order.returnStatus
+                    ? ` · ${order.returnStatus
+                        .split("_")
+                        .join(" ")
+                        .toLowerCase()}`
+                    : ""}
+                </Text>
+              </InlineStack>
+              <Button url={order.adminPath} target="_blank" variant="plain">
+                {order.name}
+              </Button>
+            </BlockStack>
           </InlineStack>
           <Text as="span" variant="bodySm" tone="subdued">
-            {new Date(order.createdAt).toLocaleDateString("en-US")}
+            Return opened {new Date(order.createdAt).toLocaleDateString("en-US")}
+            {typeof order.returnQuantity === "number"
+              ? ` · ${order.returnQuantity} unit(s)`
+              : ""}
           </Text>
         </BlockStack>,
         <BlockStack key={`${order.id}-customer`} gap="050">
@@ -254,7 +276,7 @@ export default function ReturnsQueuePage() {
                 <TextField
                   label="Search queue"
                   labelHidden
-                  placeholder="Search by order name (e.g. #1001)"
+                  placeholder="Search by order (#1001) or return name"
                   autoComplete="off"
                   value={searchValue}
                   onChange={setSearchValue}
@@ -341,8 +363,12 @@ export default function ReturnsQueuePage() {
                   Review workload
                 </Text>
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  Showing {sortedOrders.length} of {orders.length} on this page
-                  ({pageSize} per page).
+                  Showing {sortedOrders.length} return
+                  {sortedOrders.length === 1 ? "" : "s"} on this page (from{" "}
+                  {sourceOrderCount} Shopify order
+                  {sourceOrderCount === 1 ? "" : "s"}
+                  {/* pagination counts orders */}
+                  ).
                 </Text>
               </BlockStack>
               <Badge tone="attention" toneAndProgressLabelOverride=" ">
@@ -361,7 +387,7 @@ export default function ReturnsQueuePage() {
                   "text",
                 ]}
                 headings={[
-                  "Order",
+                  "Return · order",
                   "Customer",
                   "Value",
                   "Risk",
@@ -379,14 +405,14 @@ export default function ReturnsQueuePage() {
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
                   {orders.length
-                    ? "No orders on this page match the local filter."
-                    : "No orders found for this query. Try clearing the search or moving to the previous page."}
+                    ? "No returns on this page match the local filter."
+                    : "No Shopify returns matched this query. Clear the search, try another page, or create/open a test return in Shopify Admin (Orders → Return items). Requires read_returns scope and a reinstall after scopes change."}
                 </Text>
               </Box>
             )}
             <Divider />
             <InlineStack align="space-between" blockAlign="center">
-              <BulkDecisionControls selectedIds={selectedIds} />
+              <BulkDecisionControls selectedRows={selectedRows} />
               <Pagination
                 hasPrevious={pageInfo.hasPreviousPage}
                 onPrevious={handlePreviousPage}
@@ -585,8 +611,10 @@ function DecisionButton({
   return (
     <fetcher.Form method="post">
       <input type="hidden" name="intent" value="single" />
-      <input type="hidden" name="orderId" value={order.id} />
+      <input type="hidden" name="orderId" value={order.orderId} />
       <input type="hidden" name="orderName" value={order.name} />
+      <input type="hidden" name="returnId" value={order.returnId ?? ""} />
+      <input type="hidden" name="returnName" value={order.returnName ?? ""} />
       <input type="hidden" name="risk" value={order.risk} />
       <input type="hidden" name="decision" value={decision} />
       <Button
@@ -603,25 +631,29 @@ function DecisionButton({
   );
 }
 
-function BulkDecisionControls({ selectedIds }: { selectedIds: string[] }) {
-  if (!selectedIds.length) {
+function BulkDecisionControls({ selectedRows }: { selectedRows: RiskOrder[] }) {
+  if (!selectedRows.length) {
     return (
       <Text as="p" variant="bodySm" tone="subdued">
-        Select rows to run bulk decisions.
+        Select returns to run bulk decisions.
       </Text>
     );
   }
 
   return (
     <InlineStack gap="200">
-      <BulkForm selectedIds={selectedIds} decision="approved" label="Bulk approve" />
-      <BulkForm selectedIds={selectedIds} decision="review" label="Bulk review" />
       <BulkForm
-        selectedIds={selectedIds}
+        selectedRows={selectedRows}
+        decision="approved"
+        label="Bulk approve"
+      />
+      <BulkForm selectedRows={selectedRows} decision="review" label="Bulk review" />
+      <BulkForm
+        selectedRows={selectedRows}
         decision="hold"
         label="Bulk hold"
         tone="critical"
-        confirmMessage="Apply HOLD to selected orders?"
+        confirmMessage="Apply HOLD to selected returns?"
       />
     </InlineStack>
   );
@@ -631,13 +663,13 @@ function BulkForm({
   confirmMessage,
   decision,
   label,
-  selectedIds,
+  selectedRows,
   tone,
 }: {
   confirmMessage?: string;
   decision: "approved" | "review" | "hold";
   label: string;
-  selectedIds: string[];
+  selectedRows: RiskOrder[];
   tone?: "critical";
 }) {
   const fetcher = useFetcher<typeof action>();
@@ -649,7 +681,7 @@ function BulkForm({
           ? fetcher.data.count
           : null;
       shopify.toast.show(
-        count ? `Updated ${count} orders` : "Bulk action applied",
+        count ? `Updated ${count} return row(s)` : "Bulk action applied",
       );
     }
   }, [fetcher.data, shopify.toast]);
@@ -665,8 +697,11 @@ function BulkForm({
     >
       <input type="hidden" name="intent" value="bulk" />
       <input type="hidden" name="decision" value={decision} />
-      {selectedIds.map((id) => (
-        <input key={id} type="hidden" name="orderIds" value={id} />
+      {selectedRows.map((row) => (
+        <input key={row.id} type="hidden" name="bulkOrderIds" value={row.orderId} />
+      ))}
+      {selectedRows.map((row) => (
+        <input key={`${row.id}-ret`} type="hidden" name="bulkReturnIds" value={row.returnId ?? ""} />
       ))}
       <Button submit size="micro" tone={tone}>
         {label}

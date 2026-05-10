@@ -425,8 +425,10 @@ function DecisionButton({
 }) {
   return (
     <fetcher.Form method="post">
-      <input type="hidden" name="orderId" value={order.id} />
+      <input type="hidden" name="orderId" value={order.orderId} />
       <input type="hidden" name="orderName" value={order.name} />
+      <input type="hidden" name="returnId" value={order.returnId ?? ""} />
+      <input type="hidden" name="returnName" value={order.returnName ?? ""} />
       <input type="hidden" name="risk" value={order.risk} />
       <input type="hidden" name="decision" value={decision} />
       <Button
