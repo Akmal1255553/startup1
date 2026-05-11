@@ -53,3 +53,13 @@ Current known warnings:
 - `npm audit` reports dependency advisories inherited from the Shopify/Remix
   template. `npm audit fix` cannot safely resolve all of them without breaking
   upgrades.
+
+## Landing redesign walkthrough
+
+- Video walkthrough: [Landing redesign (Cursor artifact)](https://cursor.com/agents/bc-860782ab-9fa9-47ba-8288-595bd9cc8f38/artifacts?path=%2Fopt%2Fcursor%2Fartifacts%2Flanding_redesign_verified_walkthrough.mp4)
+
+### Screenshots
+
+![Landing overview](docs/screenshots/landing-overview.png)
+![Landing hero section](docs/screenshots/landing-hero.png)
+![Landing mid section](docs/screenshots/landing-mid.png)
