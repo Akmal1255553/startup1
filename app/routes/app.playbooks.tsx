@@ -4,6 +4,7 @@ import {
   Badge,
   Banner,
   BlockStack,
+  Box,
   Button,
   Card,
   Checkbox,
@@ -11,6 +12,7 @@ import {
   InlineGrid,
   InlineStack,
   Page,
+  Select,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -268,167 +270,12 @@ export default function PlaybooksPage() {
         </Card>
 
         {playbooks.map((playbook) => (
-          <Card key={playbook.id}>
-            <Form method="post">
-              <BlockStack gap="300">
-                <input type="hidden" name="intent" value="update" />
-                <input type="hidden" name="id" value={playbook.id} />
-                <InlineStack align="space-between">
-                  <InlineStack gap="200" blockAlign="center">
-                    <Text as="h2" variant="headingMd">
-                      {playbook.name}
-                    </Text>
-                    <Badge
-                      tone={playbook.isActive ? "success" : "warning"}
-                      toneAndProgressLabelOverride=" "
-                    >
-                      {playbook.isActive ? "Active" : "Paused"}
-                    </Badge>
-                  </InlineStack>
-                  <Button
-                    submit
-                    variant="primary"
-                    loading={isSubmitting}
-                    disabled={automationLocked}
-                  >
-                    Save
-                  </Button>
-                </InlineStack>
-                <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Playbook name
-                    </Text>
-                    <input name="name" defaultValue={playbook.name} />
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Automated action
-                    </Text>
-                    <select name="action" defaultValue={playbook.action}>
-                      <option value="approved">Auto approve</option>
-                      <option value="review">Auto review</option>
-                      <option value="hold">Auto hold</option>
-                    </select>
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Minimum order value
-                    </Text>
-                    <input
-                      name="minOrderValue"
-                      type="number"
-                      defaultValue={playbook.minOrderValue?.toString() || ""}
-                    />
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Repeat returns threshold
-                    </Text>
-                    <input
-                      name="repeatReturnsThreshold"
-                      type="number"
-                      defaultValue={
-                        playbook.repeatReturnsThreshold?.toString() || ""
-                      }
-                    />
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Minimum account age (days)
-                    </Text>
-                    <input
-                      name="minAccountAgeDays"
-                      type="number"
-                      defaultValue={
-                        playbook.minAccountAgeDays?.toString() || ""
-                      }
-                    />
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Suspicious email domains (comma-separated)
-                    </Text>
-                    <input
-                      name="suspiciousDomainsCsv"
-                      defaultValue={playbook.suspiciousDomainsCsv || ""}
-                    />
-                  </label>
-                </InlineGrid>
-                <label>
-                  <Text as="span" variant="bodySm">
-                    Internal notes
-                  </Text>
-                  <textarea
-                    name="notes"
-                    defaultValue={playbook.notes || ""}
-                  />
-                </label>
-                <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      Status
-                    </Text>
-                    <select
-                      name="isActive"
-                      defaultValue={playbook.isActive ? "true" : "false"}
-                    >
-                      <option value="true">Active</option>
-                      <option value="false">Paused</option>
-                    </select>
-                  </label>
-                  <label>
-                    <Text as="span" variant="bodySm">
-                      VIP bypass
-                    </Text>
-                    <select
-                      name="vipBypassEnabled"
-                      defaultValue={
-                        playbook.vipBypassEnabled ? "true" : "false"
-                      }
-                    >
-                      <option value="false">Disabled</option>
-                      <option value="true">Enabled</option>
-                    </select>
-                  </label>
-                </InlineGrid>
-              </BlockStack>
-            </Form>
-            <Divider />
-            <InlineStack align="space-between">
-              <Form method="post">
-                <input type="hidden" name="intent" value="toggle" />
-                <input type="hidden" name="id" value={playbook.id} />
-                <input
-                  type="hidden"
-                  name="isActive"
-                  value={playbook.isActive ? "false" : "true"}
-                />
-                <Button submit disabled={automationLocked}>
-                  {playbook.isActive ? "Pause" : "Activate"}
-                </Button>
-              </Form>
-              <Form
-                method="post"
-                onSubmit={(event) => {
-                  if (!window.confirm("Delete this playbook?")) {
-                    event.preventDefault();
-                  }
-                }}
-              >
-                <input type="hidden" name="intent" value="delete" />
-                <input type="hidden" name="id" value={playbook.id} />
-                <Button
-                  submit
-                  tone="critical"
-                  variant="secondary"
-                  disabled={automationLocked}
-                >
-                  Delete
-                </Button>
-              </Form>
-            </InlineStack>
-          </Card>
+          <PlaybookEditor
+            key={playbook.id}
+            playbook={playbook}
+            isSubmitting={isSubmitting}
+            automationLocked={automationLocked}
+          />
         ))}
 
         {!playbooks.length ? (
@@ -441,5 +288,211 @@ export default function PlaybooksPage() {
         ) : null}
       </BlockStack>
     </Page>
+  );
+}
+
+type PlaybookRow = ReturnType<typeof useLoaderData<typeof loader>>["playbooks"][number];
+
+/**
+ * One playbook = one editable card. We give each card its own local state
+ * so Polaris's controlled TextField / Select / Checkbox components accept
+ * keystrokes and so the form layout is consistent with the create-form
+ * above. Each row submits a separate `intent=update` POST.
+ */
+function PlaybookEditor({
+  playbook,
+  isSubmitting,
+  automationLocked,
+}: {
+  playbook: PlaybookRow;
+  isSubmitting: boolean;
+  automationLocked: boolean;
+}) {
+  const [name, setName] = useState(playbook.name);
+  const [action, setAction] = useState(playbook.action);
+  const [minOrderValue, setMinOrderValue] = useState(
+    playbook.minOrderValue?.toString() ?? "",
+  );
+  const [repeatReturnsThreshold, setRepeatReturnsThreshold] = useState(
+    playbook.repeatReturnsThreshold?.toString() ?? "",
+  );
+  const [minAccountAgeDays, setMinAccountAgeDays] = useState(
+    playbook.minAccountAgeDays?.toString() ?? "",
+  );
+  const [suspiciousDomainsCsv, setSuspiciousDomainsCsv] = useState(
+    playbook.suspiciousDomainsCsv ?? "",
+  );
+  const [notes, setNotes] = useState(playbook.notes ?? "");
+  const [isActive, setIsActive] = useState(playbook.isActive);
+  const [vipBypassEnabled, setVipBypassEnabled] = useState(
+    playbook.vipBypassEnabled,
+  );
+
+  return (
+    <Card>
+      <BlockStack gap="400">
+        <Form method="post">
+          <BlockStack gap="300">
+            <input type="hidden" name="intent" value="update" />
+            <input type="hidden" name="id" value={playbook.id} />
+            <input
+              type="hidden"
+              name="isActive"
+              value={isActive ? "true" : "false"}
+            />
+            <input
+              type="hidden"
+              name="vipBypassEnabled"
+              value={vipBypassEnabled ? "true" : "false"}
+            />
+
+            <InlineStack align="space-between" blockAlign="center">
+              <InlineStack gap="200" blockAlign="center">
+                <Text as="h2" variant="headingMd">
+                  {playbook.name}
+                </Text>
+                <Badge
+                  tone={playbook.isActive ? "success" : "warning"}
+                  toneAndProgressLabelOverride=" "
+                >
+                  {playbook.isActive ? "Active" : "Paused"}
+                </Badge>
+              </InlineStack>
+              <Button
+                submit
+                variant="primary"
+                loading={isSubmitting}
+                disabled={automationLocked}
+              >
+                Save
+              </Button>
+            </InlineStack>
+
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+              <TextField
+                label="Playbook name"
+                name="name"
+                autoComplete="off"
+                value={name}
+                onChange={setName}
+                disabled={automationLocked}
+              />
+              <Select
+                label="Automated action"
+                name="action"
+                value={action}
+                onChange={setAction}
+                disabled={automationLocked}
+                options={[
+                  { label: "Auto approve", value: "approved" },
+                  { label: "Auto review", value: "review" },
+                  { label: "Auto hold", value: "hold" },
+                ]}
+              />
+              <TextField
+                label="Minimum order value"
+                name="minOrderValue"
+                type="number"
+                autoComplete="off"
+                value={minOrderValue}
+                onChange={setMinOrderValue}
+                disabled={automationLocked}
+              />
+              <TextField
+                label="Repeat returns threshold"
+                name="repeatReturnsThreshold"
+                type="number"
+                autoComplete="off"
+                value={repeatReturnsThreshold}
+                onChange={setRepeatReturnsThreshold}
+                disabled={automationLocked}
+              />
+              <TextField
+                label="Minimum account age (days)"
+                name="minAccountAgeDays"
+                type="number"
+                autoComplete="off"
+                value={minAccountAgeDays}
+                onChange={setMinAccountAgeDays}
+                disabled={automationLocked}
+              />
+              <TextField
+                label="Suspicious email domains (comma-separated)"
+                name="suspiciousDomainsCsv"
+                autoComplete="off"
+                value={suspiciousDomainsCsv}
+                onChange={setSuspiciousDomainsCsv}
+                disabled={automationLocked}
+              />
+            </InlineGrid>
+
+            <TextField
+              label="Internal notes"
+              name="notes"
+              autoComplete="off"
+              multiline={3}
+              value={notes}
+              onChange={setNotes}
+              disabled={automationLocked}
+            />
+
+            <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+              <Box paddingBlockStart="100">
+                <Checkbox
+                  label="Active"
+                  checked={isActive}
+                  onChange={setIsActive}
+                  disabled={automationLocked}
+                />
+              </Box>
+              <Box paddingBlockStart="100">
+                <Checkbox
+                  label="Enable VIP bypass"
+                  checked={vipBypassEnabled}
+                  onChange={setVipBypassEnabled}
+                  disabled={automationLocked}
+                />
+              </Box>
+            </InlineGrid>
+          </BlockStack>
+        </Form>
+
+        <Divider />
+
+        <InlineStack align="space-between">
+          <Form method="post">
+            <input type="hidden" name="intent" value="toggle" />
+            <input type="hidden" name="id" value={playbook.id} />
+            <input
+              type="hidden"
+              name="isActive"
+              value={playbook.isActive ? "false" : "true"}
+            />
+            <Button submit disabled={automationLocked}>
+              {playbook.isActive ? "Pause" : "Activate"}
+            </Button>
+          </Form>
+          <Form
+            method="post"
+            onSubmit={(event) => {
+              if (!window.confirm("Delete this playbook?")) {
+                event.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="intent" value="delete" />
+            <input type="hidden" name="id" value={playbook.id} />
+            <Button
+              submit
+              tone="critical"
+              variant="secondary"
+              disabled={automationLocked}
+            >
+              Delete
+            </Button>
+          </Form>
+        </InlineStack>
+      </BlockStack>
+    </Card>
   );
 }

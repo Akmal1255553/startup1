@@ -850,9 +850,32 @@
   color: var(--ink);
 }
 
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.footerLink {
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.footerLink:hover {
+  color: var(--ink);
+  border-bottom-color: var(--teal-soft);
+}
+
 .footerNote {
   font-size: 0.8rem;
   color: var(--ink-soft);
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--line);
 }
 
 /* —— Responsive —— */

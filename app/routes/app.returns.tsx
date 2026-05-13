@@ -54,6 +54,7 @@ import { loadCapabilities } from "../models/plan-gating.server";
 import type { PlanCapabilities } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
 import type { loader as detailLoader } from "./app.returns.detail";
+import { useCsvExport } from "../hooks/use-csv-export";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing } = await authenticate.admin(request);
@@ -139,6 +140,7 @@ export default function ReturnsQueuePage() {
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
+  const csvExport = useCsvExport();
 
   const [searchValue, setSearchValue] = useState(searchQuery);
   const [selectedFilter, setSelectedFilter] = useState("all");
@@ -306,16 +308,14 @@ export default function ReturnsQueuePage() {
       title="Returns Queue"
       subtitle="A focused workspace for reviewing refund risk before margin leaves the store"
       primaryAction={
-        capabilities.canExportCsv
-          ? {
-              content: "Export CSV",
-              url: "/app/export/csv",
-              // Open in a new tab so the browser downloads the file
-              // instead of trying to navigate the embedded iframe.
-              external: true,
-              target: "_blank",
+        !capabilities.canExportCsv || csvExport.needsUpgrade
+          ? { content: "Export CSV (upgrade)", url: "/app/billing" }
+          : {
+              content: csvExport.isExporting ? "Preparing CSV…" : "Export CSV",
+              onAction: csvExport.exportCsv,
+              loading: csvExport.isExporting,
+              disabled: csvExport.isExporting,
             }
-          : { content: "Export CSV (upgrade)", url: "/app/billing" }
       }
       secondaryActions={[{ content: "Risk settings", url: "/app/settings" }]}
     >

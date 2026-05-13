@@ -30,6 +30,7 @@ import {
   type RiskOrder,
 } from "../models/return-risk";
 import { getOnboardingProgress } from "../models/onboarding.server";
+import { useCsvExport } from "../hooks/use-csv-export";
 
 const playbooks = [
   "Flag high-value refund requests",
@@ -66,6 +67,7 @@ export default function Dashboard() {
     onboarding,
   } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
+  const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
 
@@ -170,16 +172,18 @@ export default function Dashboard() {
       }
       secondaryActions={[
         { content: "View queue", url: "/app/returns" },
-        // Embedded admin runs in an iframe and Shopify blocks
-        // iframe-navigation to non-Shopify URLs. The CSV route returns a
-        // file attachment, so we open it in a new tab — that's where
-        // the browser will trigger the download.
-        {
-          content: "Export CSV",
-          url: "/app/export/csv",
-          external: true,
-          target: "_blank",
-        },
+        // Run the export through `useCsvExport` so the request happens
+        // inside the embedded admin session and we trigger a real
+        // browser download from a Blob — opening /app/export/csv in a
+        // new tab loses the session and bounces to login instead.
+        needsUpgrade
+          ? { content: "Export CSV (upgrade)", url: "/app/billing" }
+          : {
+              content: isExporting ? "Preparing CSV…" : "Export CSV",
+              onAction: exportCsv,
+              loading: isExporting,
+              disabled: isExporting,
+            },
       ]}
     >
       <TitleBar title="ReturnGuard AI" />
