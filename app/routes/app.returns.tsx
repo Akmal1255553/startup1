@@ -307,7 +307,14 @@ export default function ReturnsQueuePage() {
       subtitle="A focused workspace for reviewing refund risk before margin leaves the store"
       primaryAction={
         capabilities.canExportCsv
-          ? { content: "Export CSV", url: "/app/export/csv" }
+          ? {
+              content: "Export CSV",
+              url: "/app/export/csv",
+              // Open in a new tab so the browser downloads the file
+              // instead of trying to navigate the embedded iframe.
+              external: true,
+              target: "_blank",
+            }
           : { content: "Export CSV (upgrade)", url: "/app/billing" }
       }
       secondaryActions={[{ content: "Risk settings", url: "/app/settings" }]}

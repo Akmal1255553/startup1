@@ -24,13 +24,15 @@ import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import {
   ONBOARDING_STEPS,
+  type OnboardingProgress,
+  type OnboardingStep,
+} from "../models/onboarding";
+import {
   dismissOnboarding,
   getOnboardingProgress,
   markStepComplete,
   resetOnboarding,
   seedStarterPlaybook,
-  type OnboardingProgress,
-  type OnboardingStep,
 } from "../models/onboarding.server";
 
 const REQUIRED_SCOPES = [

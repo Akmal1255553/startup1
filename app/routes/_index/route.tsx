@@ -128,6 +128,12 @@ export default function Index() {
             <a className={styles.navItem} href="#install">
               Install
             </a>
+            <a className={styles.navItem} href="/privacy">
+              Privacy
+            </a>
+            <a className={styles.navItem} href="/support">
+              Support
+            </a>
             <a className={styles.navCta} href="#demo">
               View preview
             </a>

@@ -91,10 +91,29 @@ export default function PlaybooksPage() {
   const [createAction, setCreateAction] = useState("review");
   const [isCreateActive, setIsCreateActive] = useState(true);
   const [vipBypass, setVipBypass] = useState(false);
+  // Polaris TextField is a *controlled* component — without value/onChange
+  // it silently swallows keystrokes. Track every field here so users can
+  // actually type into the "Create playbook" form.
+  const [createName, setCreateName] = useState("");
+  const [createMinOrderValue, setCreateMinOrderValue] = useState("");
+  const [createRepeatThreshold, setCreateRepeatThreshold] = useState("");
+  const [createMinAccountAge, setCreateMinAccountAge] = useState("");
+  const [createDomains, setCreateDomains] = useState("");
+  const [createNotes, setCreateNotes] = useState("");
 
   useEffect(() => {
     if (actionData && actionData.ok && actionData.toast) {
       shopify.toast.show(actionData.toast);
+      // Reset the create form once Shopify confirmed the row was saved.
+      setCreateName("");
+      setCreateMinOrderValue("");
+      setCreateRepeatThreshold("");
+      setCreateMinAccountAge("");
+      setCreateDomains("");
+      setCreateNotes("");
+      setCreateAction("review");
+      setIsCreateActive(true);
+      setVipBypass(false);
     }
   }, [actionData, shopify.toast]);
 
@@ -140,6 +159,9 @@ export default function PlaybooksPage() {
                 name="name"
                 autoComplete="off"
                 error={nameError}
+                value={createName}
+                onChange={setCreateName}
+                disabled={automationLocked}
               />
               <BlockStack gap="100">
                 <Text as="p" variant="bodySm">
@@ -150,6 +172,7 @@ export default function PlaybooksPage() {
                   value={createAction}
                   onChange={(event) => setCreateAction(event.target.value)}
                   aria-invalid={Boolean(actionFieldError)}
+                  disabled={automationLocked}
                   style={{
                     width: "100%",
                     minHeight: "2.25rem",
@@ -173,29 +196,44 @@ export default function PlaybooksPage() {
                 name="minOrderValue"
                 type="number"
                 autoComplete="off"
+                value={createMinOrderValue}
+                onChange={setCreateMinOrderValue}
+                disabled={automationLocked}
               />
               <TextField
                 label="Repeat returns threshold"
                 name="repeatReturnsThreshold"
                 type="number"
                 autoComplete="off"
+                value={createRepeatThreshold}
+                onChange={setCreateRepeatThreshold}
+                disabled={automationLocked}
               />
               <TextField
                 label="Minimum account age (days)"
                 name="minAccountAgeDays"
                 type="number"
                 autoComplete="off"
+                value={createMinAccountAge}
+                onChange={setCreateMinAccountAge}
+                disabled={automationLocked}
               />
               <TextField
                 label="Suspicious email domains (comma-separated)"
                 name="suspiciousDomainsCsv"
                 autoComplete="off"
+                value={createDomains}
+                onChange={setCreateDomains}
+                disabled={automationLocked}
               />
               <TextField
                 label="Internal notes"
                 name="notes"
                 autoComplete="off"
                 multiline={3}
+                value={createNotes}
+                onChange={setCreateNotes}
+                disabled={automationLocked}
               />
               <Checkbox
                 label="Active on creation"

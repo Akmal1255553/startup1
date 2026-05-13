@@ -12,35 +12,21 @@
  *
  * The `dismissedAt` column lets a merchant hide the onboarding banner
  * without finishing it (e.g., after reinstall).
+ *
+ * Client-safe types/constants live in `./onboarding.ts` so route files
+ * can import them without dragging the Prisma client into the browser
+ * bundle (Remix Vite hard-fails the build if a .server module's values
+ * are referenced from client code).
  */
 import prisma from "../db.server";
+import {
+  ONBOARDING_STEPS,
+  type OnboardingProgress,
+  type OnboardingStep,
+} from "./onboarding";
 
-export type OnboardingStep =
-  | "welcome"
-  | "scopes"
-  | "playbook"
-  | "settings";
-
-export const ONBOARDING_STEPS: OnboardingStep[] = [
-  "welcome",
-  "scopes",
-  "playbook",
-  "settings",
-];
-
-export type OnboardingProgress = {
-  shop: string;
-  welcomeAcknowledged: boolean;
-  scopesVerified: boolean;
-  playbookSeeded: boolean;
-  settingsTuned: boolean;
-  completed: boolean;
-  dismissed: boolean;
-  /** First step that hasn't been completed yet, or null if all done. */
-  nextStep: OnboardingStep | null;
-  /** 0–100. Used by the progress bar on the dashboard banner. */
-  percent: number;
-};
+export type { OnboardingProgress, OnboardingStep } from "./onboarding";
+export { ONBOARDING_STEPS } from "./onboarding";
 
 export async function getOnboardingProgress(
   shop: string,

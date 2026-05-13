@@ -170,7 +170,16 @@ export default function Dashboard() {
       }
       secondaryActions={[
         { content: "View queue", url: "/app/returns" },
-        { content: "Export CSV", url: "/app/export/csv" },
+        // Embedded admin runs in an iframe and Shopify blocks
+        // iframe-navigation to non-Shopify URLs. The CSV route returns a
+        // file attachment, so we open it in a new tab — that's where
+        // the browser will trigger the download.
+        {
+          content: "Export CSV",
+          url: "/app/export/csv",
+          external: true,
+          target: "_blank",
+        },
       ]}
     >
       <TitleBar title="ReturnGuard AI" />
