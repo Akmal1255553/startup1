@@ -48,6 +48,8 @@ export type DashboardData = {
   settings: RiskSettings;
   summary: {
     protectedMargin: number;
+    /** Sum of order totals for rows at or above manual review risk (same basis as protected margin). */
+    flaggedGmvTotal: number;
     reviewCount: number;
     holdCount: number;
     autoApprovedCount: number;

@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { useFetcher, useLoaderData, useRevalidator } from "@remix-run/react";
 import {
   Badge,
   BlockStack,
@@ -15,6 +15,7 @@ import {
   Text,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
+import { useEffect } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
@@ -56,14 +57,37 @@ export default function Dashboard() {
     settings,
     recentActions,
   } = useLoaderData<typeof loader>();
+  const revalidator = useRevalidator();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") {
+        revalidator.revalidate();
+      }
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [revalidator]);
+
+  const marginEstimatePct = Math.round(
+    settings.protectedMarginMultiplier * 100,
+  );
+  const protectedMarginCaption =
+    summary.flaggedGmvTotal > 0
+      ? `${moneyFormatter.format(summary.flaggedGmvTotal)} in review+hold risk band × ${marginEstimatePct}% margin estimate (${summary.analyzedOrders} orders in view)`
+      : `${summary.analyzedOrders} recent orders in view — none in the review risk band yet`;
 
   const riskCards = [
     {
       label: "Estimated margin protected",
       value: moneyFormatter.format(summary.protectedMargin),
-      change: `${summary.analyzedOrders} recent orders analyzed`,
+      change: protectedMarginCaption,
       tone: "success",
     },
     {
@@ -101,6 +125,14 @@ export default function Dashboard() {
       <Text as="span" variant="bodySm" tone="subdued">
         {order.financialStatus} / {order.fulfillmentStatus}
       </Text>
+      <Text as="span" variant="bodySm" tone="subdued">
+        Placed{" "}
+        {new Date(order.createdAt).toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })}
+      </Text>
     </BlockStack>,
     moneyFormatter.format(order.value),
     <RiskMeter key={`${order.id}-risk`} order={order} />,
@@ -122,10 +154,10 @@ export default function Dashboard() {
       primaryAction={
         topRiskOrder
           ? {
-            content: "Open highest risk order",
-            url: topRiskOrder.adminPath,
-            target: "_blank",
-          }
+              content: "Open highest risk order",
+              url: topRiskOrder.adminPath,
+              target: "_blank",
+            }
           : { content: "Waiting for orders", disabled: true }
       }
       secondaryActions={[
@@ -160,27 +192,46 @@ export default function Dashboard() {
 
         <InlineGrid columns={{ xs: 1, md: 5 }} gap="400">
           {riskCards.map((card) => (
-            <Card key={card.label}>
-              <BlockStack gap="300">
-                <InlineStack align="space-between">
-                  <Text as="p" variant="bodyMd" tone="subdued">
-                    {card.label}
-                  </Text>
-                  <Badge
-                    tone={card.tone as "success" | "attention" | "critical"}
-                    toneAndProgressLabelOverride=" "
+            <Box key={card.label} minHeight="100%">
+              <Card>
+                <BlockStack gap="300">
+                  <InlineStack
+                    align="space-between"
+                    blockAlign="start"
+                    gap="200"
                   >
-                    Live
-                  </Badge>
-                </InlineStack>
-                <Text as="p" variant="heading2xl">
-                  {card.value}
-                </Text>
-                <Text as="p" variant="bodySm" tone="subdued">
-                  {card.change}
-                </Text>
-              </BlockStack>
-            </Card>
+                    <Box maxWidth="80%">
+                      <Text as="p" variant="bodyMd" tone="subdued">
+                        {card.label}
+                      </Text>
+                    </Box>
+                    <Badge
+                      tone={card.tone as "success" | "attention" | "critical"}
+                      toneAndProgressLabelOverride=" "
+                    >
+                      Live
+                    </Badge>
+                  </InlineStack>
+                  <div
+                    style={{
+                      minHeight: "3rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-start",
+                      fontVariantNumeric: "tabular-nums",
+                      textAlign: "left",
+                    }}
+                  >
+                    <Text as="p" variant="heading2xl">
+                      {card.value}
+                    </Text>
+                  </div>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {card.change}
+                  </Text>
+                </BlockStack>
+              </Card>
+            </Box>
           ))}
         </InlineGrid>
 

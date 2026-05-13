@@ -14,10 +14,6 @@ const SEARCH_QUERY_MAX_LENGTH = 200;
 const RECENT_ACTIONS_LIMIT = 12;
 const RETURNS_PER_ORDER = 25;
 
-/** Orders that have at least one return in these aggregate states. */
-const RETURN_STATUS_FILTER =
-  "return_status:IN_PROGRESS OR return_status:RETURN_REQUESTED OR return_status:RETURN_FAILED OR return_status:RETURNED OR return_status:INSPECTION_COMPLETE";
-
 const RETURNS_QUEUE_PAGE_QUERY = `#graphql
   query ReturnGuardReturnsQueuePage(
     $first: Int
@@ -195,6 +191,8 @@ export type ReturnsQueuePage = {
   pageSize: number;
   /** Distinct Shopify orders on this response page (before flattening into returns). */
   sourceOrderCount: number;
+  /** True when at least one row is tied to a Shopify Return (not order-only triage). */
+  hasExpandedReturns: boolean;
 };
 
 export async function loadReturnsQueuePage(
@@ -229,24 +227,19 @@ export async function loadReturnsQueuePage(
     const rawOrders = payload.data?.orders?.nodes || [];
     const pageInfoRaw = payload.data?.orders?.pageInfo;
 
-    const flattened = flattenReturnsFromOrders(rawOrders);
-    if (!flattened.length && rawOrders.length) {
-      return buildEmptyPage(settings, {
-        error:
-          `${rawOrders.length} order(s) matched the return filter, but no Return records were returned. Grant the read_returns scope, reinstall / update the app scopes, then try again.`,
-        needsProtectedDataAccess: false,
-        searchQuery,
-        pageSize,
-      });
-    }
-
-    const returnIds = flattened.map((row) => row.ret.id);
-    const orderIds = [...new Set(flattened.map((row) => row.order.id))];
+    const uniqueOrderIds = [...new Set(rawOrders.map((o) => o.id))];
+    const uniqueReturnIds = [
+      ...new Set(
+        rawOrders.flatMap((o) => (o.returns?.nodes ?? []).map((r) => r.id)),
+      ),
+    ];
 
     const decisionOr = [
-      ...(returnIds.length ? [{ returnId: { in: returnIds } }] : []),
-      ...(orderIds.length
-        ? [{ orderId: { in: orderIds }, returnId: null }]
+      ...(uniqueReturnIds.length
+        ? [{ returnId: { in: uniqueReturnIds } }]
+        : []),
+      ...(uniqueOrderIds.length
+        ? [{ orderId: { in: uniqueOrderIds }, returnId: null }]
         : []),
     ];
 
@@ -280,35 +273,65 @@ export async function loadReturnsQueuePage(
 
     const rows: DashboardData["orders"] = [];
 
-    for (const { order, ret } of flattened) {
+    for (const order of rawOrders) {
+      const rets = order.returns?.nodes ?? [];
       const { returns: _returns, customer, ...rest } = order;
       const orderForScore = {
         ...rest,
         customer: customer ?? null,
       };
-      const [scored] = buildRiskOrders(
-        [orderForScore],
-        settings,
-        playbooks,
-        [],
-      );
-      const factors = [
-        ...scored.factors,
-        `Shopify return ${ret.name} (${ret.status}) · ${ret.totalQuantity} unit(s)`,
-      ];
-      rows.push({
-        ...scored,
-        id: ret.id,
-        orderId: order.id,
-        returnId: ret.id,
-        returnName: ret.name,
-        returnStatus: ret.status,
-        returnQuantity: ret.totalQuantity,
-        createdAt: ret.createdAt,
-        factors,
-        savedDecision: scored.savedDecision,
-      });
+
+      if (rets.length) {
+        for (const ret of rets) {
+          const [scored] = buildRiskOrders(
+            [orderForScore],
+            settings,
+            playbooks,
+            [],
+          );
+          const factors = [
+            ...scored.factors,
+            `Shopify return ${ret.name} (${ret.status}) · ${ret.totalQuantity} unit(s)`,
+          ];
+          rows.push({
+            ...scored,
+            id: ret.id,
+            orderId: order.id,
+            returnId: ret.id,
+            returnName: ret.name,
+            returnStatus: ret.status,
+            returnQuantity: ret.totalQuantity,
+            createdAt: ret.createdAt,
+            factors,
+            savedDecision: scored.savedDecision,
+          });
+        }
+      } else {
+        const [scored] = buildRiskOrders(
+          [orderForScore],
+          settings,
+          playbooks,
+          [],
+        );
+        rows.push({
+          ...scored,
+          id: order.id,
+          orderId: order.id,
+          returnId: null,
+          returnName: null,
+          returnStatus: null,
+          returnQuantity: null,
+          createdAt: order.createdAt,
+          factors: [
+            ...scored.factors,
+            "No open Shopify Return on this order — triage uses order-level risk.",
+          ],
+          savedDecision: scored.savedDecision,
+        });
+      }
     }
+
+    const hasExpandedReturns = rows.some((row) => row.returnId !== null);
 
     const orders = mergeSavedDecisionsOntoRiskOrders(rows, decisions);
     const summary = summarizeOrders(orders, settings);
@@ -336,6 +359,7 @@ export async function loadReturnsQueuePage(
       searchQuery,
       pageSize,
       sourceOrderCount: rawOrders.length,
+      hasExpandedReturns,
     };
   } catch (error) {
     return buildEmptyPage(settings, {
@@ -361,19 +385,6 @@ function formatHistoryLabel(event: {
   return event.orderName || event.orderId;
 }
 
-function flattenReturnsFromOrders(
-  nodes: ShopifyOrderWithReturns[],
-): Array<{ order: ShopifyOrderWithReturns; ret: ReturnNode }> {
-  const out: Array<{ order: ShopifyOrderWithReturns; ret: ReturnNode }> = [];
-  for (const order of nodes) {
-    const list = order.returns?.nodes || [];
-    for (const ret of list) {
-      out.push({ order, ret });
-    }
-  }
-  return out;
-}
-
 function clampPageSize(size: number | null | undefined): number {
   if (!size || !Number.isFinite(size)) return PAGE_SIZE_DEFAULT;
   return Math.max(PAGE_SIZE_MIN, Math.min(PAGE_SIZE_MAX, Math.round(size)));
@@ -389,7 +400,7 @@ function sanitizeSearchQuery(value: string | null | undefined): string {
 }
 
 function buildReturnsQueueShopifyQuery(searchQuery: string): string {
-  const base = `status:any (${RETURN_STATUS_FILTER})`;
+  const base = "status:any";
   if (!searchQuery) return base;
   return `${base} ${searchQuery}`;
 }
@@ -460,5 +471,6 @@ function buildEmptyPage(
     searchQuery: options.searchQuery,
     pageSize: options.pageSize,
     sourceOrderCount: 0,
+    hasExpandedReturns: false,
   };
 }

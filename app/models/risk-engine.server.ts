@@ -273,12 +273,17 @@ export function summarizeOrders(
   settings: RiskSettings,
   options: { detectedOrders?: number } = {},
 ): DashboardData["summary"] {
-  const protectedMargin = orders
-    .filter((order) => order.risk >= settings.reviewRiskThreshold)
-    .reduce(
-      (sum, order) => sum + order.value * settings.protectedMarginMultiplier,
-      0,
-    );
+  const flaggedForMargin = orders.filter(
+    (order) => order.risk >= settings.reviewRiskThreshold,
+  );
+  const flaggedGmvTotal = flaggedForMargin.reduce(
+    (sum, order) => sum + order.value,
+    0,
+  );
+  const protectedMargin = flaggedForMargin.reduce(
+    (sum, order) => sum + order.value * settings.protectedMarginMultiplier,
+    0,
+  );
   const reviewCount = orders.filter(
     (order) =>
       order.risk >= settings.reviewRiskThreshold &&
@@ -300,6 +305,7 @@ export function summarizeOrders(
 
   return {
     protectedMargin,
+    flaggedGmvTotal,
     reviewCount,
     holdCount,
     autoApprovedCount,

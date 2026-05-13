@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -27,18 +28,24 @@ import {
   type InsightSeverity,
 } from "../models/ai-insights.server";
 import { Sparkline } from "../components/sparkline";
+import { loadCapabilities } from "../models/plan-gating.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
   const [analytics, insights] = await Promise.all([
     loadAnalytics(session.shop),
     loadAiInsights(session.shop),
   ]);
-  return { analytics, insights };
+  return { analytics, insights, capabilities };
 };
 
 export default function AnalyticsPage() {
-  const { analytics, insights } = useLoaderData<typeof loader>();
+  const { analytics, insights, capabilities } = useLoaderData<typeof loader>();
+  const canSee30Days = capabilities.analyticsPeriodDays >= 30;
+  const breakdownPeriod = canSee30Days
+    ? analytics.last30Days
+    : analytics.last7Days;
 
   return (
     <Page
@@ -48,7 +55,24 @@ export default function AnalyticsPage() {
     >
       <TitleBar title="Analytics" />
       <BlockStack gap="500">
-        <TodaySection analytics={analytics} />
+        {!canSee30Days ? (
+          <Banner
+            title="30-day and 90-day analytics are gated"
+            tone="info"
+            action={{ content: "Open billing", url: "/app/billing" }}
+          >
+            <p>
+              You're on {capabilities.planLabel}. Charts are limited to the
+              last {capabilities.analyticsPeriodDays} days. Upgrade to Growth
+              for 30-day history, or Scale for 90-day history.
+            </p>
+          </Banner>
+        ) : null}
+
+        <TodaySection
+          analytics={analytics}
+          canSee30Days={canSee30Days}
+        />
 
         <AiInsightsCard insights={insights} />
 
@@ -60,16 +84,21 @@ export default function AnalyticsPage() {
               period={analytics.last7Days}
             />
           </Layout.Section>
-          <Layout.Section>
-            <PeriodCard
-              title="Last 30 days"
-              tone="info"
-              period={analytics.last30Days}
-            />
-          </Layout.Section>
+          {canSee30Days ? (
+            <Layout.Section>
+              <PeriodCard
+                title="Last 30 days"
+                tone="info"
+                period={analytics.last30Days}
+              />
+            </Layout.Section>
+          ) : null}
         </Layout>
 
-        <DecisionBreakdownCard period={analytics.last30Days} />
+        <DecisionBreakdownCard
+          period={breakdownPeriod}
+          rangeLabel={canSee30Days ? "30 days" : "7 days"}
+        />
       </BlockStack>
     </Page>
   );
@@ -165,11 +194,18 @@ function insightBackground(
   }
 }
 
-function TodaySection({ analytics }: { analytics: AnalyticsSummary }) {
+function TodaySection({
+  analytics,
+  canSee30Days,
+}: {
+  analytics: AnalyticsSummary;
+  canSee30Days: boolean;
+}) {
   const { today, totalEvents } = analytics;
+  const columns = canSee30Days ? 4 : 3;
 
   return (
-    <InlineGrid columns={{ xs: 1, md: 4 }} gap="400">
+    <InlineGrid columns={{ xs: 1, md: columns }} gap="400">
       <SummaryTile
         label="Today's actions"
         value={String(today.total)}
@@ -182,16 +218,22 @@ function TodaySection({ analytics }: { analytics: AnalyticsSummary }) {
         hint={`${analytics.last7Days.approvalRate}% approval rate`}
         tone="success"
       />
+      {canSee30Days ? (
+        <SummaryTile
+          label="Last 30 days"
+          value={String(analytics.last30Days.totals.total)}
+          hint={`${analytics.last30Days.flaggedRate}% flagged for review or hold`}
+          tone="attention"
+        />
+      ) : null}
       <SummaryTile
-        label="Last 30 days"
-        value={String(analytics.last30Days.totals.total)}
-        hint={`${analytics.last30Days.flaggedRate}% flagged for review or hold`}
-        tone="attention"
-      />
-      <SummaryTile
-        label="Lifetime audit events"
-        value={String(totalEvents)}
-        hint="Across the last 30 days of audit log"
+        label="Audit events in view"
+        value={String(canSee30Days ? totalEvents : analytics.last7Days.totals.total)}
+        hint={
+          canSee30Days
+            ? "Across the last 30 days of audit log"
+            : "Across the last 7 days (upgrade for 30-day window)"
+        }
         tone="info"
       />
     </InlineGrid>
@@ -348,7 +390,13 @@ function ApprovalRateRow({
   );
 }
 
-function DecisionBreakdownCard({ period }: { period: PeriodAnalytics }) {
+function DecisionBreakdownCard({
+  period,
+  rangeLabel,
+}: {
+  period: PeriodAnalytics;
+  rangeLabel: string;
+}) {
   const totals = period.totals;
   const items: Array<{
     label: string;
@@ -365,7 +413,7 @@ function DecisionBreakdownCard({ period }: { period: PeriodAnalytics }) {
     <Card>
       <BlockStack gap="300">
         <Text as="h2" variant="headingMd">
-          Decision breakdown · last 30 days
+          Decision breakdown · last {rangeLabel}
         </Text>
         <InlineGrid columns={{ xs: 2, md: 4 }} gap="300">
           {items.map((item) => (
@@ -393,8 +441,8 @@ function DecisionBreakdownCard({ period }: { period: PeriodAnalytics }) {
             borderRadius="200"
           >
             <Text as="p" variant="bodyMd" tone="subdued">
-              No moderation events in the last 30 days. Make a decision in the
-              Returns Queue to start populating analytics.
+              No moderation events in the last {rangeLabel}. Make a decision
+              in the Returns Queue to start populating analytics.
             </Text>
           </Box>
         ) : null}

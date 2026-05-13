@@ -8,6 +8,7 @@ import {
 } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -16,15 +17,18 @@ import {
   DataTable,
   Divider,
   InlineStack,
+  List,
+  Modal,
   Pagination,
   Page,
   Select,
+  Spinner,
   TextField,
   ProgressBar,
   Text,
 } from "@shopify/polaris";
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
@@ -46,18 +50,28 @@ import {
   readSafeFormData,
   toActionFailure,
 } from "../lib/validation.server";
+import { loadCapabilities } from "../models/plan-gating.server";
+import type { PlanCapabilities } from "../billing/capabilities";
+import { actionFailure } from "../lib/action-result";
+import type { loader as detailLoader } from "./app.returns.detail";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
   const url = new URL(request.url);
+  const requestedPageSize = Number(url.searchParams.get("pageSize")) || null;
+  const clampedPageSize = requestedPageSize
+    ? Math.min(requestedPageSize, capabilities.maxQueuePageSize)
+    : null;
   const params: ReturnsQueueParams = {
     cursor: url.searchParams.get("cursor"),
     direction: parseDirection(url.searchParams.get("direction")),
     query: url.searchParams.get("q"),
-    pageSize: Number(url.searchParams.get("pageSize")) || null,
+    pageSize: clampedPageSize,
   };
 
-  return loadReturnsQueuePage(admin, session.shop, params);
+  const page = await loadReturnsQueuePage(admin, session.shop, params);
+  return { ...page, capabilities };
 };
 
 function parseDirection(
@@ -68,7 +82,8 @@ function parseDirection(
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
   let formData: FormData;
   try {
     formData = await readSafeFormData(request);
@@ -79,10 +94,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = String(formData.get("intent") || "single");
   try {
     if (intent === "bulk") {
+      if (!capabilities.canBulkAct) {
+        return actionFailure(
+          "Bulk moderation is available on the Growth and Scale plans. Open Billing to upgrade.",
+        );
+      }
       return await saveBulkReturnDecisions(session.shop, formData);
     }
     if (intent === "delete-event") {
+      if (!capabilities.canUseAuditLog) {
+        return actionFailure(
+          "Decision history is available on the Growth and Scale plans.",
+        );
+      }
       return await deleteDecisionEvent(session.shop, formData);
+    }
+    if (!capabilities.hasActivePlan) {
+      return actionFailure(
+        "Start a plan from Billing to log moderation decisions.",
+      );
     }
     return await saveReturnDecision(session.shop, formData);
   } catch (error) {
@@ -101,6 +131,8 @@ export default function ReturnsQueuePage() {
     searchQuery,
     pageSize,
     sourceOrderCount,
+    hasExpandedReturns,
+    capabilities,
   } = useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -112,6 +144,23 @@ export default function ReturnsQueuePage() {
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [sortValue, setSortValue] = useState("risk_desc");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [detailRow, setDetailRow] = useState<RiskOrder | null>(null);
+  const detailFetcher = useFetcher<typeof detailLoader>();
+  const isDetailLoading = detailFetcher.state !== "idle";
+
+  const openDetail = useCallback(
+    (order: RiskOrder) => {
+      setDetailRow(order);
+      const params = new URLSearchParams({ orderId: order.orderId });
+      if (order.returnId) params.set("returnId", order.returnId);
+      detailFetcher.load(`/app/returns/detail?${params.toString()}`);
+    },
+    [detailFetcher],
+  );
+
+  const closeDetail = useCallback(() => {
+    setDetailRow(null);
+  }, []);
 
   // Keep local search input in sync if user navigates via cursor with same query.
   useEffect(() => {
@@ -241,21 +290,31 @@ export default function ReturnsQueuePage() {
           <Text as="span" variant="bodySm" tone="subdued">
             {order.factors.slice(0, 2).join(", ")}
           </Text>
+          <Box>
+            <Button variant="plain" onClick={() => openDetail(order)}>
+              View details
+            </Button>
+          </Box>
         </BlockStack>,
         <DecisionControls key={`${order.id}-decision`} order={order} />,
       ]),
-    [sortedOrders, selectedIdSet, moneyFormatter],
+    [sortedOrders, selectedIdSet, moneyFormatter, openDetail],
   );
 
   return (
     <Page
       title="Returns Queue"
       subtitle="A focused workspace for reviewing refund risk before margin leaves the store"
-      primaryAction={{ content: "Export CSV", url: "/app/export/csv" }}
+      primaryAction={
+        capabilities.canExportCsv
+          ? { content: "Export CSV", url: "/app/export/csv" }
+          : { content: "Export CSV (upgrade)", url: "/app/billing" }
+      }
       secondaryActions={[{ content: "Risk settings", url: "/app/settings" }]}
     >
       <TitleBar title="Returns Queue" />
       <BlockStack gap="500">
+        <PlanBanner capabilities={capabilities} />
         {error ? (
           <Card>
             <BlockStack gap="200">
@@ -321,12 +380,7 @@ export default function ReturnsQueuePage() {
                 <Select
                   label="Page size"
                   labelHidden
-                  options={[
-                    { label: "10 per page", value: "10" },
-                    { label: "25 per page", value: "25" },
-                    { label: "50 per page", value: "50" },
-                    { label: "100 per page", value: "100" },
-                  ]}
+                  options={getPageSizeOptions(capabilities.maxQueuePageSize)}
                   value={String(pageSize)}
                   onChange={handlePageSizeChange}
                 />
@@ -363,12 +417,13 @@ export default function ReturnsQueuePage() {
                   Review workload
                 </Text>
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  Showing {sortedOrders.length} return
-                  {sortedOrders.length === 1 ? "" : "s"} on this page (from{" "}
-                  {sourceOrderCount} Shopify order
-                  {sourceOrderCount === 1 ? "" : "s"}
-                  {/* pagination counts orders */}
-                  ).
+                  Showing {sortedOrders.length} queue row
+                  {sortedOrders.length === 1 ? "" : "s"} from {sourceOrderCount}{" "}
+                  Shopify order
+                  {sourceOrderCount === 1 ? "" : "s"} on this page.
+                  {!hasExpandedReturns && sortedOrders.length
+                    ? " No Return records loaded for these orders — triage is shown at order level (refresh after creating a Return in Admin)."
+                    : null}
                 </Text>
               </BlockStack>
               <Badge tone="attention" toneAndProgressLabelOverride=" ">
@@ -405,14 +460,17 @@ export default function ReturnsQueuePage() {
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
                   {orders.length
-                    ? "No returns on this page match the local filter."
-                    : "No Shopify returns matched this query. Clear the search, try another page, or create/open a test return in Shopify Admin (Orders → Return items). Requires read_returns scope and a reinstall after scopes change."}
+                    ? "No rows on this page match the local filter."
+                    : "No orders on this page. Clear the search, change page size, or use pagination — data is refreshed from Shopify on each navigation."}
                 </Text>
               </Box>
             )}
             <Divider />
             <InlineStack align="space-between" blockAlign="center">
-              <BulkDecisionControls selectedRows={selectedRows} />
+              <BulkDecisionControls
+                selectedRows={selectedRows}
+                capabilities={capabilities}
+              />
               <Pagination
                 hasPrevious={pageInfo.hasPreviousPage}
                 onPrevious={handlePreviousPage}
@@ -446,6 +504,13 @@ export default function ReturnsQueuePage() {
           </BlockStack>
         </Card>
       </BlockStack>
+      <ReturnDetailModal
+        row={detailRow}
+        events={detailFetcher.data?.events ?? []}
+        isLoading={isDetailLoading}
+        moneyFormatter={moneyFormatter}
+        onClose={closeDetail}
+      />
     </Page>
   );
 }
@@ -631,7 +696,26 @@ function DecisionButton({
   );
 }
 
-function BulkDecisionControls({ selectedRows }: { selectedRows: RiskOrder[] }) {
+function BulkDecisionControls({
+  selectedRows,
+  capabilities,
+}: {
+  selectedRows: RiskOrder[];
+  capabilities: PlanCapabilities;
+}) {
+  if (!capabilities.canBulkAct) {
+    return (
+      <InlineStack gap="200" blockAlign="center">
+        <Text as="p" variant="bodySm" tone="subdued">
+          Bulk actions are available on Growth and Scale.
+        </Text>
+        <Button url="/app/billing" variant="plain">
+          Upgrade plan
+        </Button>
+      </InlineStack>
+    );
+  }
+
   if (!selectedRows.length) {
     return (
       <Text as="p" variant="bodySm" tone="subdued">
@@ -776,4 +860,318 @@ function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
       </InlineStack>
     </InlineStack>
   );
+}
+
+type DetailEvent = {
+  id: string;
+  decision: string;
+  previousDecision: string | null;
+  risk: number | null;
+  reason: string | null;
+  createdAt: string;
+  orderName: string | null;
+  returnId: string | null;
+};
+
+function ReturnDetailModal({
+  row,
+  events,
+  isLoading,
+  moneyFormatter,
+  onClose,
+}: {
+  row: RiskOrder | null;
+  events: DetailEvent[];
+  isLoading: boolean;
+  moneyFormatter: Intl.NumberFormat;
+  onClose: () => void;
+}) {
+  if (!row) {
+    return (
+      <Modal open={false} onClose={onClose} title="">
+        <Modal.Section>{null}</Modal.Section>
+      </Modal>
+    );
+  }
+
+  const accountAgeLabel =
+    row.accountAgeDays === null
+      ? "Unknown account age"
+      : row.accountAgeDays === 0
+        ? "Created today"
+        : `${row.accountAgeDays} day${row.accountAgeDays === 1 ? "" : "s"} old account`;
+
+  const riskTone: "critical" | "attention" | "success" =
+    row.risk > 80 ? "critical" : row.risk >= 60 ? "attention" : "success";
+
+  const title = row.returnName
+    ? `${row.returnName} · ${row.name}`
+    : `Return triage · ${row.name}`;
+
+  return (
+    <Modal open onClose={onClose} title={title} size="large">
+      <Modal.Section>
+        <BlockStack gap="500">
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="start">
+                <BlockStack gap="100">
+                  <Text as="h2" variant="headingMd">
+                    Risk overview
+                  </Text>
+                  <Text as="p" variant="bodyMd" tone="subdued">
+                    Suggested action: {row.recommendation}
+                  </Text>
+                </BlockStack>
+                <InlineStack gap="200" blockAlign="center">
+                  <Badge tone={riskTone} toneAndProgressLabelOverride=" ">
+                    {`Risk ${row.risk}`}
+                  </Badge>
+                  {row.savedDecision ? (
+                    <Badge
+                      tone={getDecisionTone(row.savedDecision)}
+                      toneAndProgressLabelOverride=" "
+                    >
+                      {getDecisionLabel(row.savedDecision)}
+                    </Badge>
+                  ) : (
+                    <Badge tone="attention" toneAndProgressLabelOverride=" ">
+                      No decision yet
+                    </Badge>
+                  )}
+                </InlineStack>
+              </InlineStack>
+              <Box>
+                <ProgressBar
+                  progress={row.risk}
+                  size="small"
+                  tone={
+                    row.risk > 80
+                      ? "critical"
+                      : row.risk >= 60
+                        ? "highlight"
+                        : "success"
+                  }
+                />
+              </Box>
+              <DecisionControls order={row} />
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h3" variant="headingSm">
+                Customer
+              </Text>
+              <InlineStack gap="400" wrap>
+                <DetailMetric label="Name" value={row.customer} />
+                <DetailMetric label="Email" value={row.email ?? "Not shared"} />
+                <DetailMetric
+                  label="Lifetime orders"
+                  value={String(row.customerOrders)}
+                />
+                <DetailMetric label="Account age" value={accountAgeLabel} />
+              </InlineStack>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h3" variant="headingSm">
+                Order context
+              </Text>
+              <InlineStack gap="400" wrap>
+                <DetailMetric
+                  label="Order value"
+                  value={moneyFormatter.format(row.value)}
+                />
+                <DetailMetric label="Payment" value={row.financialStatus} />
+                <DetailMetric label="Fulfillment" value={row.fulfillmentStatus} />
+                <DetailMetric
+                  label="Opened"
+                  value={new Date(row.createdAt).toLocaleString("en-US")}
+                />
+                {row.returnStatus ? (
+                  <DetailMetric
+                    label="Return status"
+                    value={row.returnStatus.split("_").join(" ").toLowerCase()}
+                  />
+                ) : null}
+                {typeof row.returnQuantity === "number" ? (
+                  <DetailMetric
+                    label="Return quantity"
+                    value={`${row.returnQuantity} unit(s)`}
+                  />
+                ) : null}
+              </InlineStack>
+              <Box>
+                <Button url={row.adminPath} target="_blank" variant="plain">
+                  Open in Shopify Admin
+                </Button>
+              </Box>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h3" variant="headingSm">
+                Risk factors
+              </Text>
+              {row.riskReasons.length ? (
+                <BlockStack gap="200">
+                  {row.riskReasons.map((reason, index) => (
+                    <InlineStack
+                      key={`${reason.label}-${index}`}
+                      align="space-between"
+                      blockAlign="center"
+                      gap="200"
+                    >
+                      <InlineStack gap="200" blockAlign="center">
+                        <Badge toneAndProgressLabelOverride=" ">
+                          {reason.category}
+                        </Badge>
+                        <Text as="span" variant="bodyMd">
+                          {reason.label}
+                        </Text>
+                      </InlineStack>
+                      <Text
+                        as="span"
+                        variant="bodySm"
+                        tone={reason.points > 0 ? "critical" : "subdued"}
+                      >
+                        {reason.points > 0 ? `+${reason.points}` : "0"}
+                      </Text>
+                    </InlineStack>
+                  ))}
+                </BlockStack>
+              ) : (
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  No risk factors recorded for this row.
+                </Text>
+              )}
+              {row.appliedPlaybooks.length ? (
+                <Box paddingBlockStart="200">
+                  <Text as="span" variant="bodySm" tone="subdued">
+                    Playbooks applied: {row.appliedPlaybooks.join(", ")}
+                  </Text>
+                </Box>
+              ) : null}
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center">
+                <Text as="h3" variant="headingSm">
+                  Previous decisions on this order
+                </Text>
+                {isLoading ? <Spinner size="small" /> : null}
+              </InlineStack>
+              {events.length ? (
+                <List type="bullet">
+                  {events.map((event) => (
+                    <List.Item key={event.id}>
+                      <InlineStack gap="200" blockAlign="center" wrap>
+                        <Text as="span" variant="bodyMd">
+                          {new Date(event.createdAt).toLocaleString("en-US")}
+                        </Text>
+                        {event.previousDecision ? (
+                          <Badge
+                            tone={getDecisionTone(event.previousDecision)}
+                            toneAndProgressLabelOverride=" "
+                          >
+                            {getDecisionLabel(event.previousDecision)}
+                          </Badge>
+                        ) : null}
+                        <Text as="span" variant="bodySm" tone="subdued">
+                          →
+                        </Text>
+                        <Badge
+                          tone={getDecisionTone(event.decision)}
+                          toneAndProgressLabelOverride=" "
+                        >
+                          {getDecisionLabel(event.decision)}
+                        </Badge>
+                        {typeof event.risk === "number" ? (
+                          <Text as="span" variant="bodySm" tone="subdued">
+                            risk {event.risk}
+                          </Text>
+                        ) : null}
+                        {event.returnId && event.returnId !== row.returnId ? (
+                          <Text as="span" variant="bodySm" tone="subdued">
+                            (other return on same order)
+                          </Text>
+                        ) : null}
+                      </InlineStack>
+                    </List.Item>
+                  ))}
+                </List>
+              ) : (
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  {isLoading
+                    ? "Loading history…"
+                    : "No decisions logged for this order yet."}
+                </Text>
+              )}
+            </BlockStack>
+          </Card>
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
+  );
+}
+
+function DetailMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <BlockStack gap="050">
+      <Text as="span" variant="bodySm" tone="subdued">
+        {label}
+      </Text>
+      <Text as="span" variant="bodyMd">
+        {value}
+      </Text>
+    </BlockStack>
+  );
+}
+
+function PlanBanner({ capabilities }: { capabilities: PlanCapabilities }) {
+  if (capabilities.hasActivePlan && capabilities.canBulkAct) return null;
+
+  if (!capabilities.hasActivePlan) {
+    return (
+      <Banner
+        title="Pick a plan to unlock ReturnGuard"
+        tone="warning"
+        action={{ content: "Open billing", url: "/app/billing" }}
+      >
+        <p>
+          You're on Trial. Returns load in read-only mode (page size up to{" "}
+          {capabilities.maxQueuePageSize}). Subscribe to log decisions, export
+          CSV, and tune playbooks.
+        </p>
+      </Banner>
+    );
+  }
+
+  return (
+    <Banner
+      title="Bulk moderation locked"
+      tone="info"
+      action={{ content: "Upgrade plan", url: "/app/billing" }}
+    >
+      <p>
+        You're on {capabilities.planLabel}. Bulk actions, automation playbooks,
+        and the audit log are available on Growth and Scale.
+      </p>
+    </Banner>
+  );
+}
+
+function getPageSizeOptions(maxQueuePageSize: number) {
+  return [
+    { label: "10 per page", value: "10" },
+    { label: "25 per page", value: "25" },
+    { label: "50 per page", value: "50" },
+    { label: "100 per page", value: "100" },
+  ].filter((option) => Number(option.value) <= maxQueuePageSize);
 }

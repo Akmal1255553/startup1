@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { Form, useActionData, useLoaderData, useNavigation } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Button,
   Card,
@@ -21,29 +22,39 @@ import {
   updateRiskSettings,
 } from "../models/return-risk.server";
 import type { RiskSettings } from "../models/return-risk";
+import { loadCapabilities } from "../models/plan-gating.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-
-  return {
-    settings: await getRiskSettings(session.shop),
-  };
+  const { session, billing } = await authenticate.admin(request);
+  const [settings, capabilities] = await Promise.all([
+    getRiskSettings(session.shop),
+    loadCapabilities(billing),
+  ]);
+  return { settings, capabilities };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
+  if (!capabilities.canSaveSettings) {
+    return {
+      ok: false as const,
+      error: "Risk settings can be saved only on a paid plan.",
+    };
+  }
   const formData = await request.formData();
 
   await updateRiskSettings(session.shop, formData);
 
-  return { ok: true };
+  return { ok: true as const };
 };
 
 export default function SettingsPage() {
-  const { settings } = useLoaderData<typeof loader>();
+  const { settings, capabilities } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const shopify = useAppBridge();
+  const settingsLocked = !capabilities.canSaveSettings;
   const [reviewThreshold, setReviewThreshold] = useState(
     settings.reviewRiskThreshold,
   );
@@ -51,10 +62,10 @@ export default function SettingsPage() {
   const isSaving = navigation.state !== "idle";
 
   useEffect(() => {
-    if (actionData?.ok) {
+    if (actionData && actionData.ok) {
       shopify.toast.show("Risk settings saved");
     }
-  }, [actionData?.ok, shopify.toast]);
+  }, [actionData, shopify.toast]);
 
   return (
     <Page
@@ -65,7 +76,20 @@ export default function SettingsPage() {
       <TitleBar title="Risk Settings" />
       <Form method="post">
         <BlockStack gap="500">
-          {actionData?.ok ? (
+          {settingsLocked ? (
+            <Banner
+              title="Risk settings can be saved only on a paid plan"
+              tone="warning"
+              action={{ content: "Open billing", url: "/app/billing" }}
+            >
+              <p>
+                You're on {capabilities.planLabel}. Saving thresholds and
+                signal weights requires Starter, Growth, or Scale.
+              </p>
+            </Banner>
+          ) : null}
+
+          {actionData && actionData.ok ? (
             <Card>
               <InlineStack gap="200" blockAlign="center">
                 <Badge tone="success" toneAndProgressLabelOverride=" ">
@@ -75,6 +99,14 @@ export default function SettingsPage() {
                   Risk settings were updated.
                 </Text>
               </InlineStack>
+            </Card>
+          ) : null}
+
+          {actionData && actionData.ok === false ? (
+            <Card>
+              <Text as="p" variant="bodyMd" tone="critical">
+                {actionData.error}
+              </Text>
             </Card>
           ) : null}
 
@@ -188,7 +220,12 @@ export default function SettingsPage() {
           </Card>
 
           <InlineStack align="end">
-            <Button submit variant="primary" loading={isSaving}>
+            <Button
+              submit
+              variant="primary"
+              loading={isSaving}
+              disabled={settingsLocked}
+            >
               Save settings
             </Button>
           </InlineStack>

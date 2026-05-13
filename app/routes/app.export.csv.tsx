@@ -1,10 +1,16 @@
 import type { LoaderFunctionArgs } from "@remix-run/node";
+import { redirect } from "@remix-run/node";
 
 import { authenticate } from "../shopify.server";
 import { loadReturnRiskData } from "../models/return-risk.server";
+import { loadCapabilities } from "../models/plan-gating.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
+  if (!capabilities.canExportCsv) {
+    return redirect("/app/billing");
+  }
   const data = await loadReturnRiskData(admin, session.shop);
   const csv = [
     [

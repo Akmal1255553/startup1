@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { Form, useActionData, useLoaderData, useNavigation } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Button,
   Card,
@@ -9,9 +10,7 @@ import {
   Divider,
   InlineGrid,
   InlineStack,
-  Layout,
   Page,
-  Select,
   Text,
   TextField,
 } from "@shopify/polaris";
@@ -30,15 +29,27 @@ import {
   toActionFailure,
 } from "../lib/validation.server";
 import { actionFailure, getFieldError } from "../lib/action-result";
+import { loadCapabilities } from "../models/plan-gating.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const playbooks = await listPlaybooks(session.shop);
-  return { playbooks };
+  const { session, billing } = await authenticate.admin(request);
+  const [playbooks, capabilities] = await Promise.all([
+    listPlaybooks(session.shop),
+    loadCapabilities(billing),
+  ]);
+  return { playbooks, capabilities };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing);
+
+  if (!capabilities.canUseAutomation) {
+    return actionFailure(
+      "Automation playbooks are available on the Growth and Scale plans. Open Billing to upgrade.",
+    );
+  }
+
   let formData: FormData;
   try {
     formData = await readSafeFormData(request);
@@ -66,14 +77,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 };
 
-const actionOptions = [
-  { label: "Auto approve", value: "approved" },
-  { label: "Auto review", value: "review" },
-  { label: "Auto hold", value: "hold" },
-];
-
 export default function PlaybooksPage() {
-  const { playbooks } = useLoaderData<typeof loader>();
+  const { playbooks, capabilities } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const actionError =
     actionData && actionData.ok === false ? actionData.error : null;
@@ -82,6 +87,7 @@ export default function PlaybooksPage() {
   const shopify = useAppBridge();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
+  const automationLocked = !capabilities.canUseAutomation;
   const [createAction, setCreateAction] = useState("review");
   const [isCreateActive, setIsCreateActive] = useState(true);
   const [vipBypass, setVipBypass] = useState(false);
@@ -99,186 +105,303 @@ export default function PlaybooksPage() {
       secondaryActions={[{ content: "Open queue", url: "/app/returns" }]}
     >
       <TitleBar title="ReturnGuard playbooks" />
-      <Layout>
-        <Layout.Section>
-          <BlockStack gap="400">
-            {actionError ? (
-              <Card>
-                <Text as="p" variant="bodyMd" tone="critical">
-                  {actionError}
-                </Text>
-              </Card>
-            ) : null}
-            {playbooks.map((playbook) => (
-              <Card key={playbook.id}>
-                <Form method="post">
-                  <BlockStack gap="300">
-                    <input type="hidden" name="intent" value="update" />
-                    <input type="hidden" name="id" value={playbook.id} />
-                    <InlineStack align="space-between">
-                      <InlineStack gap="200" blockAlign="center">
-                        <Text as="h2" variant="headingMd">
-                          {playbook.name}
-                        </Text>
-                        <Badge tone={playbook.isActive ? "success" : "warning"} toneAndProgressLabelOverride=" ">
-                          {playbook.isActive ? "Active" : "Paused"}
-                        </Badge>
-                      </InlineStack>
-                      <InlineStack gap="200">
-                        <Button submit variant="primary" loading={isSubmitting}>
-                          Save
-                        </Button>
-                      </InlineStack>
-                    </InlineStack>
-                    <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Playbook name
-                        </Text>
-                        <input name="name" defaultValue={playbook.name} />
-                      </label>
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Automated action
-                        </Text>
-                        <select name="action" defaultValue={playbook.action}>
-                          <option value="approved">Auto approve</option>
-                          <option value="review">Auto review</option>
-                          <option value="hold">Auto hold</option>
-                        </select>
-                      </label>
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Minimum order value
-                        </Text>
-                        <input
-                          name="minOrderValue"
-                          type="number"
-                          defaultValue={playbook.minOrderValue?.toString() || ""}
-                        />
-                      </label>
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Repeat returns threshold
-                        </Text>
-                        <input
-                          name="repeatReturnsThreshold"
-                          type="number"
-                          defaultValue={
-                            playbook.repeatReturnsThreshold?.toString() || ""
-                          }
-                        />
-                      </label>
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Minimum account age (days)
-                        </Text>
-                        <input
-                          name="minAccountAgeDays"
-                          type="number"
-                          defaultValue={playbook.minAccountAgeDays?.toString() || ""}
-                        />
-                      </label>
-                      <label>
-                        <Text as="span" variant="bodySm">
-                          Suspicious email domains (comma-separated)
-                        </Text>
-                        <input
-                          name="suspiciousDomainsCsv"
-                          defaultValue={playbook.suspiciousDomainsCsv || ""}
-                        />
-                      </label>
-                    </InlineGrid>
-                    <label>
-                      <Text as="span" variant="bodySm">
-                        Internal notes
-                      </Text>
-                      <textarea name="notes" defaultValue={playbook.notes || ""} />
-                    </label>
-                    <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
-                      <Select
-                        label="Status"
-                        name="isActive"
-                        options={[
-                          { label: "Active", value: "true" },
-                          { label: "Paused", value: "false" },
-                        ]}
-                        value={playbook.isActive ? "true" : "false"}
-                      />
-                      <Select
-                        label="VIP bypass"
-                        name="vipBypassEnabled"
-                        options={[
-                          { label: "Disabled", value: "false" },
-                          { label: "Enabled", value: "true" },
-                        ]}
-                        value={playbook.vipBypassEnabled ? "true" : "false"}
-                      />
-                    </InlineGrid>
-                  </BlockStack>
-                </Form>
-                <Divider />
-                <InlineStack align="space-between">
-                  <Form method="post">
-                    <input type="hidden" name="intent" value="toggle" />
-                    <input type="hidden" name="id" value={playbook.id} />
-                    <input type="hidden" name="isActive" value={playbook.isActive ? "false" : "true"} />
-                    <Button submit>{playbook.isActive ? "Pause" : "Activate"}</Button>
-                  </Form>
-                  <Form method="post" onSubmit={(event) => {
-                    if (!window.confirm("Delete this playbook?")) event.preventDefault();
-                  }}>
-                    <input type="hidden" name="intent" value="delete" />
-                    <input type="hidden" name="id" value={playbook.id} />
-                    <Button submit tone="critical" variant="secondary">Delete</Button>
-                  </Form>
-                </InlineStack>
-              </Card>
-            ))}
-            {!playbooks.length ? (
-              <Card>
-                <Text as="p" variant="bodyMd" tone="subdued">
-                  No playbooks yet. Create one to automate return moderation.
-                </Text>
-              </Card>
-            ) : null}
-          </BlockStack>
-        </Layout.Section>
-        <Layout.Section variant="oneThird">
+      <BlockStack gap="500">
+        {automationLocked ? (
+          <Banner
+            title="Playbooks are a Growth feature"
+            tone="warning"
+            action={{ content: "Upgrade plan", url: "/app/billing" }}
+          >
+            <p>
+              You're on {capabilities.planLabel}. Existing playbooks are shown
+              read-only. Upgrade to Growth or Scale to create, edit, or pause
+              automation rules.
+            </p>
+          </Banner>
+        ) : null}
+
+        {actionError ? (
           <Card>
+            <Text as="p" variant="bodyMd" tone="critical">
+              {actionError}
+            </Text>
+          </Card>
+        ) : null}
+
+        <Card>
+          <Form method="post">
+            <BlockStack gap="300">
+              <input type="hidden" name="intent" value="create" />
+              <Text as="h2" variant="headingMd">
+                Create playbook
+              </Text>
+              <TextField
+                label="Playbook name"
+                name="name"
+                autoComplete="off"
+                error={nameError}
+              />
+              <BlockStack gap="100">
+                <Text as="p" variant="bodySm">
+                  Automated action
+                </Text>
+                <select
+                  name="action"
+                  value={createAction}
+                  onChange={(event) => setCreateAction(event.target.value)}
+                  aria-invalid={Boolean(actionFieldError)}
+                  style={{
+                    width: "100%",
+                    minHeight: "2.25rem",
+                    borderRadius: "0.5rem",
+                    border: "1px solid var(--p-color-border)",
+                    padding: "0 0.75rem",
+                  }}
+                >
+                  <option value="approved">Auto approve</option>
+                  <option value="review">Auto review</option>
+                  <option value="hold">Auto hold</option>
+                </select>
+                {actionFieldError ? (
+                  <Text as="p" variant="bodySm" tone="critical">
+                    {actionFieldError}
+                  </Text>
+                ) : null}
+              </BlockStack>
+              <TextField
+                label="Minimum order value"
+                name="minOrderValue"
+                type="number"
+                autoComplete="off"
+              />
+              <TextField
+                label="Repeat returns threshold"
+                name="repeatReturnsThreshold"
+                type="number"
+                autoComplete="off"
+              />
+              <TextField
+                label="Minimum account age (days)"
+                name="minAccountAgeDays"
+                type="number"
+                autoComplete="off"
+              />
+              <TextField
+                label="Suspicious email domains (comma-separated)"
+                name="suspiciousDomainsCsv"
+                autoComplete="off"
+              />
+              <TextField
+                label="Internal notes"
+                name="notes"
+                autoComplete="off"
+                multiline={3}
+              />
+              <Checkbox
+                label="Active on creation"
+                checked={isCreateActive}
+                onChange={setIsCreateActive}
+              />
+              <Checkbox
+                label="Enable VIP bypass"
+                checked={vipBypass}
+                onChange={setVipBypass}
+              />
+              <input
+                type="hidden"
+                name="isActive"
+                value={isCreateActive ? "true" : "false"}
+              />
+              <input
+                type="hidden"
+                name="vipBypassEnabled"
+                value={vipBypass ? "true" : "false"}
+              />
+              <Button
+                submit
+                variant="primary"
+                loading={isSubmitting}
+                disabled={automationLocked}
+              >
+                Create playbook
+              </Button>
+            </BlockStack>
+          </Form>
+        </Card>
+
+        {playbooks.map((playbook) => (
+          <Card key={playbook.id}>
             <Form method="post">
               <BlockStack gap="300">
-                <input type="hidden" name="intent" value="create" />
-                <Text as="h2" variant="headingMd">Create playbook</Text>
-                <TextField
-                  label="Playbook name"
-                  name="name"
-                  autoComplete="off"
-                  error={nameError}
-                />
-                <Select
-                  label="Automated action"
-                  name="action"
-                  options={actionOptions}
-                  value={createAction}
-                  onChange={setCreateAction}
-                  error={actionFieldError}
-                />
-                <TextField label="Minimum order value" name="minOrderValue" type="number" autoComplete="off" />
-                <TextField label="Repeat returns threshold" name="repeatReturnsThreshold" type="number" autoComplete="off" />
-                <TextField label="Minimum account age (days)" name="minAccountAgeDays" type="number" autoComplete="off" />
-                <TextField label="Suspicious email domains (comma-separated)" name="suspiciousDomainsCsv" autoComplete="off" />
-                <TextField label="Internal notes" name="notes" autoComplete="off" multiline={3} />
-                <Checkbox label="Active on creation" checked={isCreateActive} onChange={setIsCreateActive} />
-                <Checkbox label="Enable VIP bypass" checked={vipBypass} onChange={setVipBypass} />
-                <input type="hidden" name="isActive" value={isCreateActive ? "true" : "false"} />
-                <input type="hidden" name="vipBypassEnabled" value={vipBypass ? "true" : "false"} />
-                <Button submit variant="primary" loading={isSubmitting}>Create playbook</Button>
+                <input type="hidden" name="intent" value="update" />
+                <input type="hidden" name="id" value={playbook.id} />
+                <InlineStack align="space-between">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text as="h2" variant="headingMd">
+                      {playbook.name}
+                    </Text>
+                    <Badge
+                      tone={playbook.isActive ? "success" : "warning"}
+                      toneAndProgressLabelOverride=" "
+                    >
+                      {playbook.isActive ? "Active" : "Paused"}
+                    </Badge>
+                  </InlineStack>
+                  <Button
+                    submit
+                    variant="primary"
+                    loading={isSubmitting}
+                    disabled={automationLocked}
+                  >
+                    Save
+                  </Button>
+                </InlineStack>
+                <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Playbook name
+                    </Text>
+                    <input name="name" defaultValue={playbook.name} />
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Automated action
+                    </Text>
+                    <select name="action" defaultValue={playbook.action}>
+                      <option value="approved">Auto approve</option>
+                      <option value="review">Auto review</option>
+                      <option value="hold">Auto hold</option>
+                    </select>
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Minimum order value
+                    </Text>
+                    <input
+                      name="minOrderValue"
+                      type="number"
+                      defaultValue={playbook.minOrderValue?.toString() || ""}
+                    />
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Repeat returns threshold
+                    </Text>
+                    <input
+                      name="repeatReturnsThreshold"
+                      type="number"
+                      defaultValue={
+                        playbook.repeatReturnsThreshold?.toString() || ""
+                      }
+                    />
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Minimum account age (days)
+                    </Text>
+                    <input
+                      name="minAccountAgeDays"
+                      type="number"
+                      defaultValue={
+                        playbook.minAccountAgeDays?.toString() || ""
+                      }
+                    />
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Suspicious email domains (comma-separated)
+                    </Text>
+                    <input
+                      name="suspiciousDomainsCsv"
+                      defaultValue={playbook.suspiciousDomainsCsv || ""}
+                    />
+                  </label>
+                </InlineGrid>
+                <label>
+                  <Text as="span" variant="bodySm">
+                    Internal notes
+                  </Text>
+                  <textarea
+                    name="notes"
+                    defaultValue={playbook.notes || ""}
+                  />
+                </label>
+                <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      Status
+                    </Text>
+                    <select
+                      name="isActive"
+                      defaultValue={playbook.isActive ? "true" : "false"}
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Paused</option>
+                    </select>
+                  </label>
+                  <label>
+                    <Text as="span" variant="bodySm">
+                      VIP bypass
+                    </Text>
+                    <select
+                      name="vipBypassEnabled"
+                      defaultValue={
+                        playbook.vipBypassEnabled ? "true" : "false"
+                      }
+                    >
+                      <option value="false">Disabled</option>
+                      <option value="true">Enabled</option>
+                    </select>
+                  </label>
+                </InlineGrid>
               </BlockStack>
             </Form>
+            <Divider />
+            <InlineStack align="space-between">
+              <Form method="post">
+                <input type="hidden" name="intent" value="toggle" />
+                <input type="hidden" name="id" value={playbook.id} />
+                <input
+                  type="hidden"
+                  name="isActive"
+                  value={playbook.isActive ? "false" : "true"}
+                />
+                <Button submit disabled={automationLocked}>
+                  {playbook.isActive ? "Pause" : "Activate"}
+                </Button>
+              </Form>
+              <Form
+                method="post"
+                onSubmit={(event) => {
+                  if (!window.confirm("Delete this playbook?")) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <input type="hidden" name="intent" value="delete" />
+                <input type="hidden" name="id" value={playbook.id} />
+                <Button
+                  submit
+                  tone="critical"
+                  variant="secondary"
+                  disabled={automationLocked}
+                >
+                  Delete
+                </Button>
+              </Form>
+            </InlineStack>
           </Card>
-        </Layout.Section>
-      </Layout>
+        ))}
+
+        {!playbooks.length ? (
+          <Card>
+            <Text as="p" variant="bodyMd" tone="subdued">
+              No playbooks in the list yet. Use the form above to create your
+              first rule.
+            </Text>
+          </Card>
+        ) : null}
+      </BlockStack>
     </Page>
   );
 }

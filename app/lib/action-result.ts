@@ -4,7 +4,7 @@
  * Routes return this shape from their `action` so the UI has a single,
  * predictable surface for handling success / error / field-level errors.
  *
- * Keep this file UI-safe (no server-only imports) — it is consumed by both
+ * Keep this file UI-safe (no server-only imports). It is consumed by both
  * server actions and React components.
  */
 export type ActionSuccess<T> = {

@@ -30,6 +30,9 @@ export default function App() {
         <Link to="/app/analytics" prefetch="intent">
           Analytics
         </Link>
+        <Link to="/app/audit-log" prefetch="intent">
+          Audit Log
+        </Link>
         <Link to="/app/playbooks" prefetch="intent">
           Playbooks
         </Link>

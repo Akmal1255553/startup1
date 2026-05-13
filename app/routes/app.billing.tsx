@@ -62,14 +62,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const returnUrl = `${url.origin}/app/billing?shop=${encodeURIComponent(session.shop)}`;
 
     try {
-      // Shopify billing.request returns a Response (redirect to confirmation URL)
-      // for embedded apps. Returning it lets Remix handle the redirect.
-      return await billing.request({
+      // billing.request always throws a Remix redirect / App Bridge response,
+      // never resolves — do not convert that throw into JSON or the button looks “dead”.
+      await billing.request({
         plan: requestedPlan,
         isTest: BILLING_TEST_MODE,
         returnUrl,
       });
     } catch (error) {
+      // Preserve Remix redirects and App Bridge billing handoff responses.
+      if (error instanceof Response) {
+        throw error;
+      }
       return {
         ok: false,
         error:
@@ -78,6 +82,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             : "Could not start subscription request.",
       };
     }
+    return { ok: false, error: "Unexpected billing state." };
   }
 
   if (intent === "cancel") {

@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model ReturnDecision {
+  id        String   @id @default(cuid())
+  shop      String
+  orderId   String
+  returnId  String?
+  orderName String?
+  decision  String
+  risk      Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shop, orderId, returnId])
+  @@index([shop, returnId])
+  @@index([shop])
+}
+
+model ReturnDecisionEvent {
+  id               String   @id @default(cuid())
+  shop             String
+  orderId          String
+  returnId         String?
+  orderName        String?
+  previousDecision String?
+  decision         String
+  risk             Int?
+  reason           String?
+  createdAt        DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, orderId])
+  @@index([shop, returnId])
+}
+
+model Playbook {
+  id                     String   @id @default(cuid())
+  shop                   String
+  name                   String
+  notes                  String?
+  isActive               Boolean  @default(true)
+  action                 String
+  minOrderValue          Int?
+  suspiciousDomainsCsv   String?
+  repeatReturnsThreshold Int?
+  minAccountAgeDays      Int?
+  vipBypassEnabled       Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([shop, isActive])
+  @@index([shop, createdAt])
+}
+
+model ReturnRiskSetting {
+  id                        String   @id @default(cuid())
+  shop                      String   @unique
+  mediumValueThreshold      Int      @default(100)
+  highValueThreshold        Int      @default(250)
+  reviewRiskThreshold       Int      @default(60)
+  holdRiskThreshold         Int      @default(80)
+  newCustomerRiskDelta      Int      @default(16)
+  repeatCustomerRiskDelta   Int      @default(12)
+  unfulfilledRiskDelta      Int      @default(12)
+  paymentReviewRiskDelta    Int      @default(14)
+  protectedMarginMultiplier Decimal  @default(0.25)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
