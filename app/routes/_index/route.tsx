@@ -341,6 +341,12 @@ export default function Index() {
         <div className={styles.footerInner}>
           <span className={styles.footerBrand}>ReturnGuard AI</span>
           <div className={styles.footerLinks}>
+            <a className={styles.navItem} href="/privacy">
+              Privacy
+            </a>
+            <a className={styles.navItem} href="/support">
+              Support
+            </a>
             <span className={styles.footerNote}>
               Not affiliated with Shopify Inc.
             </span>
