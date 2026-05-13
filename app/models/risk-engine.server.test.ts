@@ -1,5 +1,5 @@
 import type { Playbook } from "@prisma/client";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { RiskSettings } from "./return-risk";
 import {
@@ -33,15 +33,18 @@ function makeOrder(overrides: Partial<ShopifyOrderNode> = {}): ShopifyOrderNode 
     currentTotalPriceSet: overrides.currentTotalPriceSet ?? {
       shopMoney: { amount: "50", currencyCode: "USD" },
     },
-    customer: overrides.customer === undefined
-      ? {
-          displayName: "Alice",
-          email: "alice@example.com",
-          numberOfOrders: "3",
-          createdAt: "2025-01-01T00:00:00Z",
-          tags: [],
-        }
-      : overrides.customer,
+    customer:
+      overrides.customer === undefined
+        ? {
+            displayName: "Alice",
+            email: "alice@example.com",
+            numberOfOrders: "3",
+            // Far enough back to land in the ">365 days" bucket given the
+            // frozen system time below, so age contributes a stable -8.
+            createdAt: "2024-01-01T00:00:00Z",
+            tags: [],
+          }
+        : overrides.customer,
   };
 }
 
@@ -65,23 +68,34 @@ function makePlaybook(overrides: Partial<Playbook> = {}): Playbook {
   };
 }
 
-describe("buildRiskOrders / scoreOrder", () => {
-  it("low-value paid+fulfilled returning customer ⇒ baseline + Low value reason", () => {
-    const [row] = buildRiskOrders(
-      [makeOrder()],
-      SETTINGS,
-      [],
-      [],
-    );
-    expect(row.risk).toBe(18);
+// Freeze "now" so account-age deltas don't drift as time passes.
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-06-01T00:00:00Z"));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
+describe("buildRiskOrders / scoreOrder (V2)", () => {
+  it("low-value paid+fulfilled trusted customer ⇒ clamped to floor (8)", () => {
+    // base 10 + value 0 + payment -2 + fulfillment -2 + customer +4 + age -8 = 2
+    // clamps to floor of 8.
+    const [row] = buildRiskOrders([makeOrder()], SETTINGS, [], []);
+    expect(row.risk).toBe(8);
     expect(row.recommendation).toBe("Approve automatically");
     expect(row.factors).toContain("Low order value");
+    expect(row.factors).toContain("Payment cleared");
+    expect(row.factors).toContain("Order fulfilled");
     expect(row.appliedPlaybooks).toEqual([]);
     expect(row.savedDecision).toBeNull();
     expect(row.currencyCode).toBe("USD");
+    expect(row.narrative).toMatch(/ReturnGuard recommends/i);
   });
 
-  it("medium-value adds 18 points", () => {
+  it("medium-value adds +12", () => {
+    // base 10 + value 12 + payment -2 + fulfillment -2 + customer +4 + age -8 = 14
     const [row] = buildRiskOrders(
       [
         makeOrder({
@@ -94,11 +108,12 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBe(36);
+    expect(row.risk).toBe(14);
     expect(row.factors).toContain("Medium order value");
   });
 
-  it("high-value adds 34 points", () => {
+  it("high-value adds +20", () => {
+    // base 10 + value 20 + payment -2 + fulfillment -2 + customer +4 + age -8 = 22
     const [row] = buildRiskOrders(
       [
         makeOrder({
@@ -111,39 +126,51 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBe(52);
+    expect(row.risk).toBe(22);
     expect(row.factors).toContain("High order value");
   });
 
-  it("non-paid + non-fulfilled stacks payment + fulfillment deltas", () => {
-    // NB: implementation matches substring "fulfilled", so "Unfulfilled"
-    // counterintuitively still contains "fulfilled" and does NOT add the
-    // delta. We use "Unknown" here to actually trip the fulfillment branch.
+  it("very-high-value (2× threshold) adds +28", () => {
+    // base 10 + 28 - 2 - 2 + 4 - 8 = 30
     const [row] = buildRiskOrders(
       [
         makeOrder({
-          displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "800", currencyCode: "USD" },
+          },
         }),
       ],
       SETTINGS,
       [],
       [],
     );
-    expect(row.risk).toBe(18 + 14 + 12);
-    expect(row.factors).toEqual(
-      expect.arrayContaining([
-        "Payment requires review",
-        "Order not fulfilled",
-      ]),
-    );
+    expect(row.risk).toBe(30);
+    expect(row.factors).toContain("Very high order value");
   });
 
-  it('"Unfulfilled" string keeps fulfillment delta off (current substring rule)', () => {
+  it("extreme-value (≥8× threshold) adds +38", () => {
+    // base 10 + 38 - 2 - 2 + 4 - 8 = 40
     const [row] = buildRiskOrders(
       [
         makeOrder({
-          displayFinancialStatus: "Pending",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "5000", currencyCode: "USD" },
+          },
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(row.risk).toBe(40);
+    expect(row.factors).toContain("Extreme order value");
+  });
+
+  it("Unfulfilled now correctly trips the fulfillment delta (V1 substring bug fixed)", () => {
+    // base 10 + value 0 + payment -2 + fulfillment +12 + customer +4 + age -8 = 16
+    const [row] = buildRiskOrders(
+      [
+        makeOrder({
           displayFulfillmentStatus: "Unfulfilled",
         }),
       ],
@@ -151,11 +178,44 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBe(18 + 14);
-    expect(row.factors).not.toContain("Order not fulfilled");
+    expect(row.risk).toBe(16);
+    expect(row.factors).toContain("Order not fulfilled");
   });
 
-  it("new customer (≤1 order) adds newCustomerRiskDelta", () => {
+  it("partially_paid normalizes and adds +10 (not treated as paid)", () => {
+    // base 10 + 0 + 10 - 2 + 4 - 8 = 14
+    const [row] = buildRiskOrders(
+      [
+        makeOrder({
+          displayFinancialStatus: "PARTIALLY_PAID",
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(row.risk).toBe(14);
+    expect(row.factors).toContain("Payment only partially settled");
+  });
+
+  it("Pending payment adds paymentReviewRiskDelta", () => {
+    // base 10 + 0 + 14 - 2 + 4 - 8 = 18
+    const [row] = buildRiskOrders(
+      [
+        makeOrder({
+          displayFinancialStatus: "Pending",
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(row.risk).toBe(18);
+    expect(row.factors).toContain("Payment still pending");
+  });
+
+  it("first-time customer (1 prior order) adds newCustomerRiskDelta - 2", () => {
+    // base 10 + 0 - 2 - 2 + 14 + (-8 with 2024-01-01 acct) = 12
     const [row] = buildRiskOrders(
       [
         makeOrder({
@@ -163,7 +223,7 @@ describe("buildRiskOrders / scoreOrder", () => {
             displayName: "Bob",
             email: "bob@example.com",
             numberOfOrders: "1",
-            createdAt: "2026-05-01T00:00:00Z",
+            createdAt: "2024-01-01T00:00:00Z",
             tags: [],
           },
         }),
@@ -172,11 +232,12 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBe(18 + 16);
-    expect(row.factors).toContain("New customer");
+    expect(row.risk).toBe(12);
+    expect(row.factors).toContain("First-time customer");
   });
 
-  it("repeat customer (≥5 orders) adds repeatCustomerRiskDelta", () => {
+  it("trusted customer (10–19 orders) gets -6", () => {
+    // base 10 + 0 - 2 - 2 - 6 - 8 = -8 → clamped to 8
     const [row] = buildRiskOrders(
       [
         makeOrder({
@@ -193,23 +254,19 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBe(18 + 12);
-    expect(row.factors).toContain("High return/order history");
+    expect(row.risk).toBe(8);
+    expect(row.factors).toContain("Trusted customer (10–19 prior orders)");
   });
 
-  it("stacks all high-risk factors and stays within [8, 96]", () => {
+  it("VIP customer (20+) gets -10", () => {
+    // base 10 + 0 - 2 - 2 - 10 - 8 = -12 → clamped to 8
     const [row] = buildRiskOrders(
       [
         makeOrder({
-          displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
-          currentTotalPriceSet: {
-            shopMoney: { amount: "10000", currencyCode: "USD" },
-          },
           customer: {
-            displayName: "Repeat",
-            email: "x@example.com",
-            numberOfOrders: "9",
+            displayName: "VIP",
+            email: "vip@example.com",
+            numberOfOrders: "30",
             createdAt: "2024-01-01T00:00:00Z",
             tags: [],
           },
@@ -219,12 +276,12 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
       [],
     );
-    expect(row.risk).toBeLessThanOrEqual(96);
-    expect(row.risk).toBeGreaterThanOrEqual(8);
-    expect(row.risk).toBe(18 + 34 + 14 + 12 + 12);
+    expect(row.risk).toBe(8);
+    expect(row.factors).toContain("VIP customer (20+ prior orders)");
   });
 
-  it("guest customer treated as 0 orders, no customer delta", () => {
+  it("guest checkout treated as +newCustomerRiskDelta and unknown account age", () => {
+    // base 10 + 0 - 2 - 2 + 16 + 6 = 28
     const [row] = buildRiskOrders(
       [
         makeOrder({
@@ -236,21 +293,47 @@ describe("buildRiskOrders / scoreOrder", () => {
       [],
     );
     expect(row.customer).toBe("Guest checkout");
-    expect(row.risk).toBe(18 + 16);
+    expect(row.risk).toBe(28);
+    expect(row.factors).toContain("Guest checkout — no account history");
+    expect(row.factors).toContain("Account age unknown");
   });
 
-  it("getRecommendation flips at thresholds", () => {
-    const [auto] = buildRiskOrders([makeOrder()], SETTINGS, [], []);
-    expect(auto.recommendation).toBe("Approve automatically");
-
-    const [review] = buildRiskOrders(
+  it("stacks worst-case factors and clamps at 96", () => {
+    // base 10 + 38 + 14 + 12 + 16 + 6 = 96
+    const [row] = buildRiskOrders(
       [
         makeOrder({
           displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
+          displayFulfillmentStatus: "Unfulfilled",
           currentTotalPriceSet: {
-            shopMoney: { amount: "150", currencyCode: "USD" },
+            shopMoney: { amount: "10000", currencyCode: "USD" },
           },
+          customer: null,
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(row.risk).toBeLessThanOrEqual(96);
+    expect(row.risk).toBeGreaterThanOrEqual(8);
+    expect(row.risk).toBe(96);
+  });
+
+  it("recommendation flips at thresholds", () => {
+    const [auto] = buildRiskOrders([makeOrder()], SETTINGS, [], []);
+    expect(auto.recommendation).toBe("Approve automatically");
+
+    // base 10 + 34 (premium 4–8× = $1500) + 0 (paid) + 12 (unfulfilled)
+    // + 16 (guest) + 6 (no age) = 78 → review band
+    const [review] = buildRiskOrders(
+      [
+        makeOrder({
+          displayFulfillmentStatus: "Unfulfilled",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "1500", currencyCode: "USD" },
+          },
+          customer: null,
         }),
       ],
       SETTINGS,
@@ -261,21 +344,16 @@ describe("buildRiskOrders / scoreOrder", () => {
     expect(review.risk).toBeLessThan(80);
     expect(review.recommendation).toBe("Manual review");
 
+    // Extreme value + pending + unfulfilled + guest + null age → 96 clamped
     const [hold] = buildRiskOrders(
       [
         makeOrder({
           displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
+          displayFulfillmentStatus: "Unfulfilled",
           currentTotalPriceSet: {
-            shopMoney: { amount: "300", currencyCode: "USD" },
+            shopMoney: { amount: "10000", currencyCode: "USD" },
           },
-          customer: {
-            displayName: "Carol",
-            email: "carol@example.com",
-            numberOfOrders: "12",
-            createdAt: "2024-01-01T00:00:00Z",
-            tags: [],
-          },
+          customer: null,
         }),
       ],
       SETTINGS,
@@ -284,6 +362,43 @@ describe("buildRiskOrders / scoreOrder", () => {
     );
     expect(hold.risk).toBeGreaterThanOrEqual(80);
     expect(hold.recommendation).toBe("Hold refund");
+  });
+
+  it("two different orders with shared 'Unfulfilled / high-value / new customer' shape now score differently", () => {
+    // Regression for the original bug surfaced by the user: two orders
+    // showing identical risk on the dashboard. We use distinct value bucket
+    // membership (premium vs extreme) AND distinct customer cohort
+    // (first-time vs guest) to assert clear differentiation.
+    const [a, b] = buildRiskOrders(
+      [
+        makeOrder({
+          id: "gid://shopify/Order/A",
+          displayFulfillmentStatus: "Unfulfilled",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "1500", currencyCode: "USD" },
+          },
+          customer: {
+            displayName: "First-timer",
+            email: "ft@example.com",
+            numberOfOrders: "1",
+            createdAt: "2024-01-01T00:00:00Z",
+            tags: [],
+          },
+        }),
+        makeOrder({
+          id: "gid://shopify/Order/B",
+          displayFulfillmentStatus: "Unfulfilled",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "3000", currencyCode: "USD" },
+          },
+          customer: null,
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(a.risk).not.toBe(b.risk);
   });
 
   it("applies decision from order-level saved decision (returnId null)", () => {
@@ -308,6 +423,40 @@ describe("buildRiskOrders / scoreOrder", () => {
     ];
     const [row] = buildRiskOrders([makeOrder()], SETTINGS, [], decisions);
     expect(row.savedDecision).toBeNull();
+  });
+});
+
+describe("narrative generation", () => {
+  it("describes the recommendation in plain English", () => {
+    const [row] = buildRiskOrders(
+      [
+        makeOrder({
+          displayFinancialStatus: "Pending",
+          displayFulfillmentStatus: "Unfulfilled",
+          currentTotalPriceSet: {
+            shopMoney: { amount: "10000", currencyCode: "USD" },
+          },
+          customer: null,
+        }),
+      ],
+      SETTINGS,
+      [],
+      [],
+    );
+    expect(row.narrative).toMatch(/extreme/i);
+    expect(row.narrative).toMatch(/guest/i);
+    expect(row.narrative).toMatch(/not fulfilled/i);
+    expect(row.narrative).toMatch(/hold refund/i);
+  });
+
+  it("mentions matched playbooks", () => {
+    const [row] = buildRiskOrders(
+      [makeOrder()],
+      SETTINGS,
+      [makePlaybook({ name: "VIP fast-track", action: "approve" })],
+      [],
+    );
+    expect(row.narrative).toMatch(/VIP fast-track/);
   });
 });
 
@@ -366,7 +515,7 @@ describe("playbook matching (via buildRiskOrders)", () => {
             displayName: "Mallory",
             email: "mallory@badmail.test",
             numberOfOrders: "3",
-            createdAt: "2025-01-01T00:00:00Z",
+            createdAt: "2024-01-01T00:00:00Z",
             tags: [],
           },
         }),
@@ -472,6 +621,7 @@ describe("summarizeOrders", () => {
       flaggedReturns: 0,
       approvalRatio: 0,
       averageRiskScore: 0,
+      riskSpread: 0,
     });
   });
 
@@ -483,29 +633,26 @@ describe("summarizeOrders", () => {
   it("buckets review and hold counts at thresholds", () => {
     const orders = buildRiskOrders(
       [
+        // auto-approve: default low-value order, risk 8
         makeOrder({ id: "gid://shopify/Order/A" }),
+        // review band: 1500 USD + Unfulfilled + guest + null age = 78
         makeOrder({
           id: "gid://shopify/Order/B",
-          displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
+          displayFulfillmentStatus: "Unfulfilled",
           currentTotalPriceSet: {
-            shopMoney: { amount: "150", currencyCode: "USD" },
+            shopMoney: { amount: "1500", currencyCode: "USD" },
           },
+          customer: null,
         }),
+        // hold band: extreme + pending + unfulfilled + guest + null age = 96
         makeOrder({
           id: "gid://shopify/Order/C",
           displayFinancialStatus: "Pending",
-          displayFulfillmentStatus: "Unknown",
+          displayFulfillmentStatus: "Unfulfilled",
           currentTotalPriceSet: {
-            shopMoney: { amount: "300", currencyCode: "USD" },
+            shopMoney: { amount: "10000", currencyCode: "USD" },
           },
-          customer: {
-            displayName: "Repeat",
-            email: "r@example.com",
-            numberOfOrders: "12",
-            createdAt: "2024-01-01T00:00:00Z",
-            tags: [],
-          },
+          customer: null,
         }),
       ],
       SETTINGS,
@@ -518,10 +665,57 @@ describe("summarizeOrders", () => {
     expect(summary.reviewCount).toBe(1);
     expect(summary.holdCount).toBe(1);
     expect(summary.flaggedReturns).toBe(2);
-    expect(summary.flaggedGmvTotal).toBeCloseTo(450, 6);
-    expect(summary.protectedMargin).toBeCloseTo(450 * 0.25, 6);
+    expect(summary.flaggedGmvTotal).toBeCloseTo(11500, 6);
+    expect(summary.protectedMargin).toBeCloseTo(11500 * 0.25, 6);
     expect(summary.analyzedOrders).toBe(3);
     expect(summary.confidence).toBeGreaterThan(0);
+    expect(summary.riskSpread).toBeGreaterThan(0);
+  });
+
+  it("confidence reflects risk spread — homogeneous scores → higher confidence", () => {
+    const homogeneous = summarizeOrders(
+      buildRiskOrders(
+        [
+          makeOrder({ id: "gid://shopify/Order/A" }),
+          makeOrder({ id: "gid://shopify/Order/B" }),
+          makeOrder({ id: "gid://shopify/Order/C" }),
+        ],
+        SETTINGS,
+        [],
+        [],
+      ),
+      SETTINGS,
+    );
+
+    const mixed = summarizeOrders(
+      buildRiskOrders(
+        [
+          makeOrder({ id: "gid://shopify/Order/A" }),
+          makeOrder({
+            id: "gid://shopify/Order/B",
+            displayFinancialStatus: "Pending",
+            displayFulfillmentStatus: "Unfulfilled",
+            currentTotalPriceSet: {
+              shopMoney: { amount: "10000", currencyCode: "USD" },
+            },
+            customer: null,
+          }),
+          makeOrder({
+            id: "gid://shopify/Order/C",
+            currentTotalPriceSet: {
+              shopMoney: { amount: "800", currencyCode: "USD" },
+            },
+          }),
+        ],
+        SETTINGS,
+        [],
+        [],
+      ),
+      SETTINGS,
+    );
+
+    expect(homogeneous.confidence).toBeGreaterThan(mixed.confidence);
+    expect(mixed.riskSpread).toBeGreaterThan(homogeneous.riskSpread);
   });
 
   it("approvalRatio reflects savedDecision==='approved' fraction", () => {

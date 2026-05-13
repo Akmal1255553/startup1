@@ -37,10 +37,18 @@ export type RiskOrder = {
   riskReasons: Array<{
     label: string;
     points: number;
-    category: "value" | "payment" | "fulfillment" | "customer" | "playbook";
+    category:
+      | "value"
+      | "payment"
+      | "fulfillment"
+      | "customer"
+      | "account"
+      | "playbook";
   }>;
   appliedPlaybooks: string[];
   savedDecision: string | null;
+  /** 1–2 sentence plain-English explanation generated from the signals. */
+  narrative: string;
 };
 
 export type DashboardData = {
@@ -61,6 +69,8 @@ export type DashboardData = {
     flaggedReturns: number;
     approvalRatio: number;
     averageRiskScore: number;
+    /** Standard deviation of risk across orders — surfaces ambiguity. */
+    riskSpread: number;
   };
   recentActions: Array<{
     id: string;

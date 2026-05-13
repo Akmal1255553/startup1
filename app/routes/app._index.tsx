@@ -30,6 +30,7 @@ import {
   type RiskOrder,
 } from "../models/return-risk";
 import { getOnboardingProgress } from "../models/onboarding.server";
+import { loadAiInsights } from "../models/ai-insights.server";
 import { useCsvExport } from "../hooks/use-csv-export";
 
 const playbooks = [
@@ -41,12 +42,13 @@ const playbooks = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
 
-  const [data, onboarding] = await Promise.all([
+  const [data, onboarding, aiInsights] = await Promise.all([
     loadReturnRiskData(admin, session.shop),
     getOnboardingProgress(session.shop),
+    loadAiInsights(session.shop),
   ]);
 
-  return { ...data, onboarding };
+  return { ...data, onboarding, aiInsights };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -65,6 +67,7 @@ export default function Dashboard() {
     settings,
     recentActions,
     onboarding,
+    aiInsights,
   } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
@@ -151,7 +154,7 @@ export default function Dashboard() {
         {order.recommendation}
       </Text>
       <Text as="span" variant="bodySm" tone="subdued">
-        {order.factors.join(", ")}
+        {order.narrative}
       </Text>
     </BlockStack>,
     <DecisionControls key={`${order.id}-decision`} order={order} />,
@@ -350,12 +353,77 @@ export default function Dashboard() {
                     {summary.confidence}%
                   </Text>
                   <ProgressBar progress={summary.confidence} tone="success" />
-                  <Text as="p" variant="bodyMd" tone="subdued">
-                    Calculated from order value, payment status, fulfillment
-                    status, and customer order history.
-                  </Text>
+                  <BlockStack gap="100">
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Avg risk {summary.averageRiskScore} · spread{" "}
+                      ±{summary.riskSpread} · {summary.analyzedOrders} orders
+                      analyzed
+                    </Text>
+                    <Text as="p" variant="bodyMd" tone="subdued">
+                      Confidence drops as risk spread widens — more agreement
+                      across orders means higher confidence in the call.
+                    </Text>
+                  </BlockStack>
                 </BlockStack>
               </Card>
+
+              {aiInsights.length ? (
+                <Card>
+                  <BlockStack gap="300">
+                    <InlineStack
+                      align="space-between"
+                      blockAlign="center"
+                      gap="200"
+                    >
+                      <Text as="h2" variant="headingMd">
+                        ReturnGuard analysis
+                      </Text>
+                      <Badge tone="success" toneAndProgressLabelOverride=" ">
+                        AI
+                      </Badge>
+                    </InlineStack>
+                    {aiInsights.slice(0, 3).map((insight) => (
+                      <Box
+                        key={insight.id}
+                        padding="300"
+                        background="bg-surface-active"
+                        borderRadius="200"
+                      >
+                        <BlockStack gap="100">
+                          <InlineStack
+                            gap="200"
+                            blockAlign="center"
+                            align="space-between"
+                          >
+                            <Text as="span" variant="bodyMd" fontWeight="semibold">
+                              {insight.title}
+                            </Text>
+                            <Badge
+                              tone={insight.severity}
+                              toneAndProgressLabelOverride=" "
+                            >
+                              {insight.severity}
+                            </Badge>
+                          </InlineStack>
+                          <Text as="p" variant="bodySm" tone="subdued">
+                            {insight.message}
+                          </Text>
+                          {insight.cta ? (
+                            <Box paddingBlockStart="100">
+                              <Button url={insight.cta.url} variant="plain">
+                                {insight.cta.label}
+                              </Button>
+                            </Box>
+                          ) : null}
+                        </BlockStack>
+                      </Box>
+                    ))}
+                    <Button url="/app/analytics" variant="plain">
+                      Open analytics
+                    </Button>
+                  </BlockStack>
+                </Card>
+              ) : null}
 
               <Card>
                 <BlockStack gap="300">

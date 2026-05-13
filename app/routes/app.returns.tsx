@@ -1021,6 +1021,22 @@ function ReturnDetailModal({
 
           <Card>
             <BlockStack gap="300">
+              <InlineStack align="space-between" blockAlign="center" gap="200">
+                <Text as="h3" variant="headingSm">
+                  ReturnGuard analysis
+                </Text>
+                <Badge tone="success" toneAndProgressLabelOverride=" ">
+                  AI
+                </Badge>
+              </InlineStack>
+              <Text as="p" variant="bodyMd">
+                {row.narrative}
+              </Text>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="300">
               <Text as="h3" variant="headingSm">
                 Risk factors
               </Text>
