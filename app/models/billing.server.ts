@@ -8,7 +8,31 @@ import {
   type PlanId,
 } from "../billing/plans";
 
-export const BILLING_TEST_MODE = process.env.NODE_ENV !== "production";
+/**
+ * Whether to issue Shopify Billing requests in test mode.
+ *
+ * Shopify's billing API has a strict rule:
+ *   - Development / partner / staff stores can only accept TEST charges.
+ *   - Production / live merchant stores can only accept REAL charges.
+ * Sending the wrong flag returns `Error while billing the store` from
+ * `appSubscriptionCreate`.
+ *
+ * Until the app is approved in the App Store, we'll mostly be installed on
+ * development stores, so the safe default is `isTest: true`. Once you're
+ * live and listed, set BILLING_TEST=false in Render to charge real merchants.
+ *
+ * Precedence:
+ *   1. BILLING_TEST=true|false  (explicit override)
+ *   2. NODE_ENV !== "production" (legacy default — true in dev)
+ */
+function resolveBillingTestMode(): boolean {
+  const raw = process.env.BILLING_TEST;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
+export const BILLING_TEST_MODE = resolveBillingTestMode();
 
 export const KNOWN_PLAN_IDS: PlanId[] = [PLAN_STARTER, PLAN_GROWTH, PLAN_SCALE];
 

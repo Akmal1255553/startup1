@@ -76,10 +76,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       return {
         ok: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not start subscription request.",
+        error: formatBillingError(error, requestedPlan),
       };
     }
     return { ok: false, error: "Unexpected billing state." };
@@ -112,6 +109,48 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { ok: false, error: "Unknown intent." };
 };
 
+/**
+ * Shopify's BillingError wraps a generic "Error while billing the store"
+ * message and stashes the real GraphQL userErrors / errors in `errorData`.
+ * Pull those out so the merchant can see *why* the charge was refused
+ * (most often: test-mode mismatch between app config and store type).
+ */
+function formatBillingError(error: unknown, planId: string): string {
+  if (!(error instanceof Error)) {
+    return "Could not start subscription request.";
+  }
+  const errorData = (error as Error & { errorData?: unknown }).errorData;
+  const detail = stringifyBillingErrorData(errorData);
+  const hint =
+    detail && /test|development/i.test(detail)
+      ? " Tip: development stores can only accept test charges. Set BILLING_TEST=true in your environment."
+      : "";
+  if (detail) {
+    return `${error.message} (${planId}): ${detail}.${hint}`;
+  }
+  return `${error.message} (${planId}).${hint}`;
+}
+
+function stringifyBillingErrorData(data: unknown): string | null {
+  if (!data) return null;
+  if (Array.isArray(data)) {
+    const messages = data
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const e = entry as { message?: unknown; field?: unknown };
+        if (typeof e.message === "string" && e.message) return e.message;
+        return null;
+      })
+      .filter((value): value is string => Boolean(value));
+    if (messages.length) return messages.join("; ");
+  }
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return null;
+  }
+}
+
 export default function BillingPage() {
   const { plans, activePlan, hasActivePayment, subscriptionId, isTestMode } =
     useLoaderData<typeof loader>();
@@ -119,6 +158,13 @@ export default function BillingPage() {
   const shopify = useAppBridge();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
+  // Which plan/intent is currently being submitted — used to show
+  // a "Confirming…" state on the right card and freeze the others.
+  const pendingIntent = navigation.formData?.get("intent") ?? null;
+  const pendingPlan =
+    pendingIntent === "subscribe"
+      ? String(navigation.formData?.get("plan") ?? "")
+      : null;
   const errorMessage =
     actionData && "error" in actionData ? actionData.error : null;
   const cancelled =
@@ -175,6 +221,7 @@ export default function BillingPage() {
               activePlan={activePlan}
               hasActivePayment={hasActivePayment}
               isSubmitting={isSubmitting}
+              pendingPlan={pendingPlan}
             />
           ))}
         </InlineGrid>
@@ -258,26 +305,50 @@ function PlanCard({
   activePlan,
   hasActivePayment,
   isSubmitting,
+  pendingPlan,
 }: {
   plan: PlanDescriptor;
   activePlan: PlanId | null;
   hasActivePayment: boolean;
   isSubmitting: boolean;
+  pendingPlan: string | null;
 }) {
   const isCurrent = hasActivePayment && plan.id === activePlan;
+  const isPending = pendingPlan === plan.id;
+  // While one card is being submitted, freeze the other cards so the
+  // merchant can't double-spend on a second plan mid-flow.
+  const isFrozen = isSubmitting && !isPending;
+
+  const buttonLabel = isPending
+    ? "Confirming…"
+    : hasActivePayment
+      ? "Switch to this plan"
+      : "Start free trial";
 
   return (
-    <Card>
+    <Card
+      background={isCurrent ? "bg-surface-success" : isPending ? "bg-surface-selected" : undefined}
+    >
       <BlockStack gap="300">
-        <InlineStack align="space-between" blockAlign="center">
+        <InlineStack align="space-between" blockAlign="center" gap="200">
           <Text as="h3" variant="headingMd">
             {plan.name}
           </Text>
-          {plan.recommended ? (
-            <Badge tone="success" toneAndProgressLabelOverride=" ">
-              Recommended
-            </Badge>
-          ) : null}
+          <InlineStack gap="100">
+            {isCurrent ? (
+              <Badge tone="success" toneAndProgressLabelOverride=" ">
+                Current plan
+              </Badge>
+            ) : isPending ? (
+              <Badge tone="info" toneAndProgressLabelOverride=" ">
+                Selecting…
+              </Badge>
+            ) : plan.recommended ? (
+              <Badge tone="success" toneAndProgressLabelOverride=" ">
+                Recommended
+              </Badge>
+            ) : null}
+          </InlineStack>
         </InlineStack>
 
         <Text as="p" variant="bodySm" tone="subdued">
@@ -318,9 +389,10 @@ function PlanCard({
                 submit
                 variant={plan.recommended ? "primary" : "secondary"}
                 fullWidth
-                loading={isSubmitting}
+                loading={isPending}
+                disabled={isFrozen}
               >
-                {hasActivePayment ? "Switch to this plan" : "Start free trial"}
+                {buttonLabel}
               </Button>
             </Form>
           )}
