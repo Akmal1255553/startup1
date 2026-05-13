@@ -10,4 +10,12 @@ module.exports = {
   globals: {
     shopify: "readonly"
   },
+  // We use Vitest, not Jest. The Remix preset enables eslint-plugin-jest,
+  // which crashes trying to detect a Jest version that isn't installed.
+  // Pinning the version is enough to keep its lint rules running.
+  settings: {
+    jest: {
+      version: 29,
+    },
+  },
 };
