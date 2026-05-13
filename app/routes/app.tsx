@@ -24,6 +24,9 @@ export default function App() {
         <Link to="/app" rel="home" prefetch="intent">
           Dashboard
         </Link>
+        <Link to="/app/onboarding" prefetch="intent">
+          Get Started
+        </Link>
         <Link to="/app/returns" prefetch="intent">
           Returns Queue
         </Link>

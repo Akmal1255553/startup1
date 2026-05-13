@@ -2,6 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher, useLoaderData, useRevalidator } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
@@ -28,6 +29,7 @@ import {
   getMoneyFormatter,
   type RiskOrder,
 } from "../models/return-risk";
+import { getOnboardingProgress } from "../models/onboarding.server";
 
 const playbooks = [
   "Flag high-value refund requests",
@@ -38,7 +40,12 @@ const playbooks = [
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
 
-  return loadReturnRiskData(admin, session.shop);
+  const [data, onboarding] = await Promise.all([
+    loadReturnRiskData(admin, session.shop),
+    getOnboardingProgress(session.shop),
+  ]);
+
+  return { ...data, onboarding };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -56,6 +63,7 @@ export default function Dashboard() {
     needsProtectedDataAccess,
     settings,
     recentActions,
+    onboarding,
   } = useLoaderData<typeof loader>();
   const revalidator = useRevalidator();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
@@ -167,6 +175,27 @@ export default function Dashboard() {
     >
       <TitleBar title="ReturnGuard AI" />
       <BlockStack gap="500">
+        {!onboarding.completed && !onboarding.dismissed ? (
+          <Banner
+            title="Finish setting up ReturnGuard"
+            tone="info"
+            action={{ content: "Open setup", url: "/app/onboarding" }}
+            secondaryAction={{
+              content: "Hide",
+              url: "/app/onboarding?intent=dismiss",
+            }}
+          >
+            <BlockStack gap="100">
+              <Text as="p" variant="bodyMd">
+                {`Setup is ${onboarding.percent}% complete. Finish a couple more steps so ReturnGuard can start auto-scoring your returns.`}
+              </Text>
+              <Box>
+                <ProgressBar progress={onboarding.percent} tone="primary" />
+              </Box>
+            </BlockStack>
+          </Banner>
+        ) : null}
+
         {error ? (
           <Card>
             <BlockStack gap="200">

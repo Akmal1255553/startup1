@@ -2,12 +2,14 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { Form, useActionData, useLoaderData, useNavigation } from "@remix-run/react";
 import {
   Badge,
+  Banner,
   BlockStack,
   Box,
   Button,
   Card,
   InlineGrid,
   InlineStack,
+  Link,
   List,
   Page,
   Text,
@@ -74,9 +76,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (error instanceof Response) {
         throw error;
       }
+      const payload = formatBillingError(error, requestedPlan);
       return {
         ok: false,
-        error: formatBillingError(error, requestedPlan),
+        error: payload.message,
+        errorKind: payload.kind,
+        shop: session.shop,
       };
     }
     return { ok: false, error: "Unexpected billing state." };
@@ -110,25 +115,62 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 /**
- * Shopify's BillingError wraps a generic "Error while billing the store"
- * message and stashes the real GraphQL userErrors / errors in `errorData`.
- * Pull those out so the merchant can see *why* the charge was refused
- * (most often: test-mode mismatch between app config and store type).
+ * Categorize the BillingError so the UI can show a targeted banner.
+ *
+ *  - `public-distribution` → app is on Custom distribution. Shopify rejects
+ *    Billing API entirely until distribution is set to Public in Partner
+ *    Dashboard, even on dev stores in test mode.
+ *  - `test-mismatch`       → live store with isTest=true, or dev store with
+ *    isTest=false.
+ *  - `generic`             → anything else, with errorData appended.
  */
-function formatBillingError(error: unknown, planId: string): string {
+type BillingErrorKind = "public-distribution" | "test-mismatch" | "generic";
+type BillingErrorPayload = {
+  kind: BillingErrorKind;
+  message: string;
+  detail: string | null;
+};
+
+function formatBillingError(
+  error: unknown,
+  planId: string,
+): BillingErrorPayload {
   if (!(error instanceof Error)) {
-    return "Could not start subscription request.";
+    return {
+      kind: "generic",
+      message: "Could not start subscription request.",
+      detail: null,
+    };
   }
   const errorData = (error as Error & { errorData?: unknown }).errorData;
   const detail = stringifyBillingErrorData(errorData);
-  const hint =
-    detail && /test|development/i.test(detail)
-      ? " Tip: development stores can only accept test charges. Set BILLING_TEST=true in your environment."
-      : "";
-  if (detail) {
-    return `${error.message} (${planId}): ${detail}.${hint}`;
+  const merged = `${error.message} ${detail ?? ""}`.toLowerCase();
+
+  if (/public distribution|managed pricing/.test(merged)) {
+    return {
+      kind: "public-distribution",
+      message: detail
+        ? `${error.message} (${planId}): ${detail}.`
+        : `${error.message} (${planId}).`,
+      detail,
+    };
   }
-  return `${error.message} (${planId}).${hint}`;
+  if (/test|development store/.test(merged)) {
+    return {
+      kind: "test-mismatch",
+      message: detail
+        ? `${error.message} (${planId}): ${detail}. Set BILLING_TEST=true on Render if you're on a development store, or BILLING_TEST=false on a live store.`
+        : `${error.message} (${planId}).`,
+      detail,
+    };
+  }
+  return {
+    kind: "generic",
+    message: detail
+      ? `${error.message} (${planId}): ${detail}.`
+      : `${error.message} (${planId}).`,
+    detail,
+  };
 }
 
 function stringifyBillingErrorData(data: unknown): string | null {
@@ -167,6 +209,14 @@ export default function BillingPage() {
       : null;
   const errorMessage =
     actionData && "error" in actionData ? actionData.error : null;
+  const errorKind =
+    actionData && "errorKind" in actionData
+      ? (actionData as { errorKind?: BillingErrorKind }).errorKind ?? null
+      : null;
+  const errorShop =
+    actionData && "shop" in actionData
+      ? (actionData as { shop?: string }).shop ?? null
+      : null;
   const cancelled =
     actionData && "cancelled" in actionData ? actionData.cancelled : false;
 
@@ -199,11 +249,11 @@ export default function BillingPage() {
         ) : null}
 
         {errorMessage ? (
-          <Card>
-            <Text as="p" variant="bodyMd" tone="critical">
-              {errorMessage}
-            </Text>
-          </Card>
+          <BillingErrorBanner
+            kind={errorKind}
+            message={errorMessage}
+            shop={errorShop}
+          />
         ) : null}
 
         <CurrentPlanCard
@@ -297,6 +347,85 @@ function CurrentPlanCard({
         ) : null}
       </BlockStack>
     </Card>
+  );
+}
+
+function BillingErrorBanner({
+  kind,
+  message,
+  shop,
+}: {
+  kind: BillingErrorKind | null;
+  message: string;
+  shop: string | null;
+}) {
+  if (kind === "public-distribution") {
+    return (
+      <Banner
+        title="Billing API requires Public Distribution"
+        tone="warning"
+      >
+        <BlockStack gap="200">
+          <Text as="p" variant="bodyMd">
+            Shopify only lets apps charge merchants through the Billing API
+            once they're set to <strong>Public distribution</strong> in the
+            Partner Dashboard — even on development stores. Apps on Custom
+            distribution must use Managed Pricing instead.
+          </Text>
+          <Text as="p" variant="bodyMd">
+            <strong>Fix it in 30 seconds:</strong>
+          </Text>
+          <List type="number" gap="extraTight">
+            <List.Item>
+              Open{" "}
+              <Link
+                url="https://partners.shopify.com/current/apps"
+                target="_blank"
+              >
+                Partner Dashboard → Apps → ReturnGuard-AI
+              </Link>
+              .
+            </List.Item>
+            <List.Item>
+              Go to <strong>Distribution</strong> in the left sidebar.
+            </List.Item>
+            <List.Item>
+              Click <strong>Choose distribution</strong> →{" "}
+              <strong>Public distribution</strong> → <strong>Save</strong>.
+              You don't need to finish the App Store listing yet — Billing API
+              starts working as soon as distribution is set.
+            </List.Item>
+            <List.Item>Come back here and pick a plan again.</List.Item>
+          </List>
+          <Text as="p" variant="bodySm" tone="subdued">
+            Raw error: {message}
+          </Text>
+          {shop ? (
+            <Text as="p" variant="bodySm" tone="subdued">
+              Store: {shop}
+            </Text>
+          ) : null}
+        </BlockStack>
+      </Banner>
+    );
+  }
+
+  if (kind === "test-mismatch") {
+    return (
+      <Banner title="Test-mode mismatch with this store" tone="warning">
+        <Text as="p" variant="bodyMd">
+          {message}
+        </Text>
+      </Banner>
+    );
+  }
+
+  return (
+    <Banner title="Could not start subscription" tone="critical">
+      <Text as="p" variant="bodyMd">
+        {message}
+      </Text>
+    </Banner>
   );
 }
 
