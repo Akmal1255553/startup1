@@ -39,7 +39,9 @@ export default function SupportPage() {
       <ul style={ul}>
         <li>
           Email:{" "}
-          <a href="mailto:support@returnguard.ai">support@returnguard.ai</a>
+          <a href="mailto:supportreturnguard.ai@gmail.com">
+            supportreturnguard.ai@gmail.com
+          </a>
         </li>
         <li>Response time: within 1 business day (Mon–Fri).</li>
         <li>Available languages: English, Russian.</li>

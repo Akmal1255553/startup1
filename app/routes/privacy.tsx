@@ -133,7 +133,11 @@ export default function PrivacyPage() {
       </ul>
       <p>
         Merchants can additionally request manual deletion of their data at
-        any time by emailing <a href="mailto:support@returnguard.ai">support@returnguard.ai</a>.
+        any time by emailing{" "}
+        <a href="mailto:supportreturnguard.ai@gmail.com">
+          supportreturnguard.ai@gmail.com
+        </a>
+        .
       </p>
 
       <h2 style={h2}>7. Sub-processors</h2>
@@ -161,7 +165,10 @@ export default function PrivacyPage() {
       <h2 style={h2}>10. Contact</h2>
       <p>
         Questions or requests can be sent to{" "}
-        <a href="mailto:support@returnguard.ai">support@returnguard.ai</a>.
+        <a href="mailto:supportreturnguard.ai@gmail.com">
+          supportreturnguard.ai@gmail.com
+        </a>
+        .
       </p>
     </LegalLayout>
   );
