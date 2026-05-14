@@ -2,10 +2,12 @@ import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import type { Locale } from "./types";
 import { getAppShellMessages } from "./messages/app-shell";
+import { getDashboardMessages } from "./messages/dashboard";
 
 export type I18nContextValue = {
   locale: Locale;
   app: ReturnType<typeof getAppShellMessages>;
+  dashboard: ReturnType<typeof getDashboardMessages>;
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -18,7 +20,11 @@ export function I18nProvider({
   children: ReactNode;
 }) {
   const value = useMemo(
-    () => ({ locale, app: getAppShellMessages(locale) }),
+    () => ({
+      locale,
+      app: getAppShellMessages(locale),
+      dashboard: getDashboardMessages(locale),
+    }),
     [locale],
   );
   return (

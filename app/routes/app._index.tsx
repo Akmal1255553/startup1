@@ -18,12 +18,13 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
+import { useI18n } from "../i18n/i18n-context";
+import { decisionLabelFromDashboard } from "../i18n/messages/dashboard";
 import {
   loadReturnRiskData,
   saveReturnDecision,
 } from "../models/return-risk.server";
 import {
-  getDecisionLabel,
   getDecisionTone,
   getMoneyFormatter,
   type RiskOrder,
@@ -32,12 +33,6 @@ import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
 import { useCsvExport } from "../hooks/use-csv-export";
 import styles from "../styles/dashboard-index.module.css";
-
-const playbooks = [
-  "Flag high-value refund requests",
-  "Pause refunds above the hold threshold",
-  "Auto-approve low-risk paid and fulfilled orders",
-];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -69,10 +64,13 @@ export default function Dashboard() {
     onboarding,
     aiInsights,
   } = useLoaderData<typeof loader>();
+  const { locale, dashboard: d } = useI18n();
   const revalidator = useRevalidator();
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const moneyFormatter = getMoneyFormatter(summary.currencyCode);
+  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const playbooks = [d.playbook1, d.playbook2, d.playbook3];
 
   useEffect(() => {
     const refresh = () => {
@@ -101,64 +99,65 @@ export default function Dashboard() {
     tone: RiskCardTone;
   }[] = [
     {
-      label: "Estimated margin protected",
+      label: d.cardEstimatedMargin,
       value: moneyFormatter.format(summary.protectedMargin),
       change:
         summary.flaggedGmvTotal > 0 ? (
           <BlockStack gap="050">
             <Text as="span" variant="bodySm" tone="subdued">
-              {moneyFormatter.format(summary.flaggedGmvTotal)} in review+hold
-              risk band
-            </Text>
-            <Text as="span" variant="bodySm" tone="subdued">
-              × {marginEstimatePct}% margin estimate · {summary.analyzedOrders}{" "}
-              orders in view
+              {d.cardMarginCaptionFlagged(
+                moneyFormatter.format(summary.flaggedGmvTotal),
+                marginEstimatePct,
+                summary.analyzedOrders,
+              )}
             </Text>
           </BlockStack>
         ) : (
           <Text as="span" variant="bodySm" tone="subdued">
-            {summary.analyzedOrders} recent orders in view — none in the review
-            risk band yet
+            {d.cardMarginCaptionNone(summary.analyzedOrders)}
           </Text>
         ),
       tone: "success",
     },
     {
-      label: "Manual review queue",
+      label: d.cardManualReview,
       value: String(summary.reviewCount),
       change: (
         <Text as="span" variant="bodySm" tone="subdued">
-          Risk {settings.reviewRiskThreshold}-{settings.holdRiskThreshold - 1}
+          {d.cardReviewCaption(
+            settings.reviewRiskThreshold,
+            settings.holdRiskThreshold - 1,
+          )}
         </Text>
       ),
       tone: "attention",
     },
     {
-      label: "Refund holds",
+      label: d.cardRefundHolds,
       value: String(summary.holdCount),
       change: (
         <Text as="span" variant="bodySm" tone="subdued">
-          Risk {settings.holdRiskThreshold}+
+          {d.cardHoldCaption(settings.holdRiskThreshold)}
         </Text>
       ),
       tone: "critical",
     },
     {
-      label: "Approval ratio",
+      label: d.cardApprovalRatio,
       value: `${summary.approvalRatio}%`,
       change: (
         <Text as="span" variant="bodySm" tone="subdued">
-          {summary.totalReturns} total returns
+          {d.cardApprovalCaption(summary.totalReturns)}
         </Text>
       ),
       tone: "success",
     },
     {
-      label: "Flagged returns",
+      label: d.cardFlaggedReturns,
       value: String(summary.flaggedReturns),
       change: (
         <Text as="span" variant="bodySm" tone="subdued">
-          {summary.averageRiskScore} avg risk score
+          {d.cardFlaggedCaption(summary.averageRiskScore)}
         </Text>
       ),
       tone: "attention",
@@ -169,48 +168,50 @@ export default function Dashboard() {
 
   return (
     <Page
-      title="ReturnGuard AI"
-      subtitle="Operational return-risk control center for your Shopify store"
+      title={d.pageTitle}
+      subtitle={d.pageSubtitle}
       primaryAction={
         topRiskOrder
           ? {
-              content: "Open highest risk order",
+              content: d.primaryOpenHighestRisk,
               url: topRiskOrder.adminPath,
               target: "_blank",
             }
-          : { content: "Waiting for orders", disabled: true }
+          : { content: d.primaryWaitingOrders, disabled: true }
       }
       secondaryActions={[
-        { content: "View queue", url: "/app/returns" },
+        { content: d.secondaryViewQueue, url: "/app/returns" },
         // Run the export through `useCsvExport` so the request happens
         // inside the embedded admin session and we trigger a real
         // browser download from a Blob — opening /app/export/csv in a
         // new tab loses the session and bounces to login instead.
         needsUpgrade
-          ? { content: "Export CSV (upgrade)", url: "/app/billing" }
+          ? { content: d.secondaryExportCsvUpgrade, url: "/app/billing" }
           : {
-              content: isExporting ? "Preparing CSV…" : "Export CSV",
+              content: isExporting
+                ? d.secondaryExportCsvPreparing
+                : d.secondaryExportCsv,
               onAction: exportCsv,
               loading: isExporting,
               disabled: isExporting,
             },
       ]}
     >
-      <TitleBar title="ReturnGuard AI" />
+      <TitleBar title={d.pageTitle} />
       <BlockStack gap="500">
         {!onboarding.completed && !onboarding.dismissed ? (
           <Banner
-            title="Finish setting up ReturnGuard"
+            title={d.bannerFinishSetup}
             tone="info"
-            action={{ content: "Open setup", url: "/app/onboarding" }}
+            action={{ content: d.bannerOpenSetup, url: "/app/onboarding" }}
             secondaryAction={{
-              content: "Hide",
+              content: d.bannerHide,
               url: "/app/onboarding?intent=dismiss",
             }}
           >
             <BlockStack gap="100">
               <Text as="p" variant="bodyMd">
-                {`Setup is ${onboarding.percent}% complete. Finish a couple more steps so ReturnGuard can start auto-scoring your returns.`}
+                {d.bannerSetupBody(onboarding.percent)}
               </Text>
               <Box>
                 <ProgressBar progress={onboarding.percent} tone="primary" />
@@ -224,18 +225,15 @@ export default function Dashboard() {
             <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
                 {needsProtectedDataAccess
-                  ? "Order details need approval"
-                  : "Shopify data did not load"}
+                  ? d.errorTitleProtected
+                  : d.errorTitleGeneric}
               </Text>
               <Text as="p" variant="bodyMd" tone="subdued">
                 {error}
               </Text>
               {needsProtectedDataAccess ? (
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  Detected orders: {summary.detectedOrders}. Enable Protected
-                  Customer Data access in the Shopify Partner Dashboard, then
-                  reinstall the app so Shopify grants order details to this
-                  access token.
+                  {d.errorProtectedBody(summary.detectedOrders)}
                 </Text>
               ) : null}
             </BlockStack>
@@ -264,7 +262,7 @@ export default function Dashboard() {
                         }
                         toneAndProgressLabelOverride=" "
                       >
-                        Live
+                        {d.cardBadgeLive}
                       </Badge>
                     </InlineStack>
                   </Box>
@@ -295,15 +293,14 @@ export default function Dashboard() {
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
                     <Text as="h2" variant="headingMd">
-                      Live return-risk queue
+                      {d.queueTitle}
                     </Text>
                     <Text as="p" variant="bodyMd" tone="subdued">
-                      Recent orders ranked by refund risk, customer context, and
-                      operational status.
+                      {d.queueSubtitle}
                     </Text>
                   </BlockStack>
                   <Button url="/app/returns" variant="primary">
-                    Open full queue
+                    {d.queueOpenFull}
                   </Button>
                 </InlineStack>
 
@@ -312,14 +309,14 @@ export default function Dashboard() {
                     <table className={styles.queueTable}>
                       <thead>
                         <tr>
-                          <th className={styles.colOrder}>Order</th>
-                          <th>Customer</th>
-                          <th className={styles.colValue}>Value</th>
-                          <th className={styles.colRisk}>Risk</th>
+                          <th className={styles.colOrder}>{d.thOrder}</th>
+                          <th>{d.thCustomer}</th>
+                          <th className={styles.colValue}>{d.thValue}</th>
+                          <th className={styles.colRisk}>{d.thRisk}</th>
                           <th className={styles.colGuidance}>
-                            {"Recommendation & context"}
+                            {d.thGuidance}
                           </th>
-                          <th className={styles.colDecision}>Decision</th>
+                          <th className={styles.colDecision}>{d.thDecision}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -340,9 +337,9 @@ export default function Dashboard() {
                                   {order.fulfillmentStatus}
                                 </Text>
                                 <Text as="span" variant="bodySm" tone="subdued">
-                                  Placed{" "}
+                                  {d.placedOn}{" "}
                                   {new Date(order.createdAt).toLocaleDateString(
-                                    undefined,
+                                    dateLocale,
                                     {
                                       year: "numeric",
                                       month: "short",
@@ -388,12 +385,12 @@ export default function Dashboard() {
                   >
                     <BlockStack gap="200">
                       <Text as="h3" variant="headingMd">
-                        No recent orders found
+                        {d.queueEmptyTitle}
                       </Text>
                       <Text as="p" variant="bodyMd" tone="subdued">
                         {summary.detectedOrders
-                          ? `${summary.detectedOrders} order found, but details are locked until Protected Customer Data access is enabled.`
-                          : "Create a test order in Shopify, then refresh this page to see ReturnGuard score it."}
+                          ? d.queueEmptyLocked(summary.detectedOrders)
+                          : d.queueEmptyHint}
                       </Text>
                     </BlockStack>
                   </Box>
@@ -407,7 +404,7 @@ export default function Dashboard() {
               <Card>
                 <BlockStack gap="300">
                   <Text as="h2" variant="headingMd">
-                    Signal confidence
+                    {d.signalTitle}
                   </Text>
                   <Text as="p" variant="headingXl">
                     {summary.confidence}%
@@ -415,13 +412,14 @@ export default function Dashboard() {
                   <ProgressBar progress={summary.confidence} tone="success" />
                   <BlockStack gap="100">
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Avg risk {summary.averageRiskScore} · spread{" "}
-                      ±{summary.riskSpread} · {summary.analyzedOrders} orders
-                      analyzed
+                      {d.signalSub1(
+                        summary.averageRiskScore,
+                        summary.riskSpread,
+                        summary.analyzedOrders,
+                      )}
                     </Text>
                     <Text as="p" variant="bodyMd" tone="subdued">
-                      Confidence drops as risk spread widens — more agreement
-                      across orders means higher confidence in the call.
+                      {d.signalSub2}
                     </Text>
                   </BlockStack>
                 </BlockStack>
@@ -436,10 +434,10 @@ export default function Dashboard() {
                       gap="200"
                     >
                       <Text as="h2" variant="headingMd">
-                        ReturnGuard analysis
+                        {d.analysisTitle}
                       </Text>
                       <Badge tone="success" toneAndProgressLabelOverride=" ">
-                        AI
+                        {d.analysisBadgeAi}
                       </Badge>
                     </InlineStack>
                     {aiInsights.slice(0, 3).map((insight) => (
@@ -479,7 +477,7 @@ export default function Dashboard() {
                       </Box>
                     ))}
                     <Button url="/app/analytics" variant="plain">
-                      Open analytics
+                      {d.analysisOpenAnalytics}
                     </Button>
                   </BlockStack>
                 </Card>
@@ -488,7 +486,7 @@ export default function Dashboard() {
               <Card>
                 <BlockStack gap="300">
                   <Text as="h2" variant="headingMd">
-                    Active playbooks
+                    {d.playbooksTitle}
                   </Text>
                   {playbooks.map((playbook) => (
                     <Box
@@ -499,7 +497,7 @@ export default function Dashboard() {
                     >
                       <InlineStack gap="200" blockAlign="center">
                         <Badge tone="success" toneAndProgressLabelOverride=" ">
-                          On
+                          {d.playbooksOn}
                         </Badge>
                         <Text as="span" variant="bodyMd">
                           {playbook}
@@ -507,13 +505,13 @@ export default function Dashboard() {
                       </InlineStack>
                     </Box>
                   ))}
-                  <Button url="/app/playbooks">Manage playbooks</Button>
+                  <Button url="/app/playbooks">{d.playbooksManage}</Button>
                 </BlockStack>
               </Card>
               <Card>
                 <BlockStack gap="300">
                   <Text as="h2" variant="headingMd">
-                    Recent actions
+                    {d.recentTitle}
                   </Text>
                   {recentActions.slice(0, 5).map((action) => (
                     <InlineStack key={action.id} align="space-between">
@@ -524,13 +522,13 @@ export default function Dashboard() {
                         tone={getDecisionTone(action.decision)}
                         toneAndProgressLabelOverride=" "
                       >
-                        {getDecisionLabel(action.decision)}
+                        {decisionLabelFromDashboard(d, action.decision)}
                       </Badge>
                     </InlineStack>
                   ))}
                   {!recentActions.length ? (
                     <Text as="p" variant="bodySm" tone="subdued">
-                      No moderation actions yet.
+                      {d.recentEmpty}
                     </Text>
                   ) : null}
                 </BlockStack>
@@ -577,6 +575,7 @@ function RiskMeter({ order }: { order: RiskOrder }) {
 
 function DecisionControls({ order }: { order: RiskOrder }) {
   const fetcher = useFetcher<typeof action>();
+  const { dashboard: d } = useI18n();
   const isSaving = fetcher.state !== "idle";
   const currentDecision =
     fetcher.formData?.get("decision")?.toString() || order.savedDecision;
@@ -585,7 +584,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
     <div className={styles.decisionInline}>
       <DecisionButton
         decision="approved"
-        label="Approve"
+        label={d.btnApprove}
         order={order}
         pressed={currentDecision === "approved"}
         loading={isSaving && fetcher.formData?.get("decision") === "approved"}
@@ -594,7 +593,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
       />
       <DecisionButton
         decision="review"
-        label="Review"
+        label={d.btnReview}
         order={order}
         pressed={currentDecision === "review"}
         loading={isSaving && fetcher.formData?.get("decision") === "review"}
@@ -602,7 +601,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
       />
       <DecisionButton
         decision="hold"
-        label="Hold"
+        label={d.btnHold}
         order={order}
         pressed={currentDecision === "hold"}
         loading={isSaving && fetcher.formData?.get("decision") === "hold"}
@@ -614,11 +613,11 @@ function DecisionControls({ order }: { order: RiskOrder }) {
           tone={getDecisionTone(currentDecision)}
           toneAndProgressLabelOverride=" "
         >
-          {getDecisionLabel(currentDecision)}
+          {decisionLabelFromDashboard(d, currentDecision)}
         </Badge>
       ) : (
         <Text as="span" variant="bodySm" tone="subdued">
-          No decision yet
+          {d.noDecisionYet}
         </Text>
       )}
     </div>

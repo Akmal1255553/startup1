@@ -31,6 +31,14 @@ function localeFromAcceptLanguage(header: string | null): Locale | null {
 export async function resolveLocale(request: Request): Promise<Locale> {
   const fromCookie = await readLocaleCookie(request.headers.get("Cookie"));
   if (fromCookie) return fromCookie;
+
+  const url = new URL(request.url);
+  // Embedded admin: default English until the merchant picks a language in-app
+  // (avoids mixed RU nav + EN body from browser Accept-Language alone).
+  if (url.pathname.startsWith("/app")) {
+    return "en";
+  }
+
   const fromHeader = localeFromAcceptLanguage(
     request.headers.get("Accept-Language"),
   );
