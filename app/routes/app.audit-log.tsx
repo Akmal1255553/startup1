@@ -31,6 +31,7 @@ import { deleteDecisionEvent } from "../models/return-risk.server";
 import { getDecisionLabel, getDecisionTone } from "../models/return-risk";
 import { readSafeFormData, toActionFailure } from "../lib/validation.server";
 import { loadCapabilities } from "../models/plan-gating.server";
+import { describePlanContext } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -114,9 +115,9 @@ export default function AuditLogPage() {
           action={{ content: "Open billing", url: "/app/billing" }}
         >
           <p>
-            You're on {capabilities.planLabel}. Upgrade to Growth or Scale to
-            unlock the full decision history with search, filters, and
-            removable events.
+            {describePlanContext(capabilities)}{" "}
+            Upgrade to Growth or Scale to unlock the full decision history with
+            search, filters, and removable events.
           </p>
         </Banner>
       </Page>

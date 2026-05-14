@@ -29,6 +29,7 @@ import {
 } from "../models/ai-insights.server";
 import { Sparkline } from "../components/sparkline";
 import { loadCapabilities } from "../models/plan-gating.server";
+import { describePlanContext } from "../billing/capabilities";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
@@ -62,9 +63,10 @@ export default function AnalyticsPage() {
             action={{ content: "Open billing", url: "/app/billing" }}
           >
             <p>
-              You're on {capabilities.planLabel}. Charts are limited to the
-              last {capabilities.analyticsPeriodDays} days. Upgrade to Growth
-              for 30-day history, or Scale for 90-day history.
+              {describePlanContext(capabilities)}{" "}
+              Charts are limited to the last {capabilities.analyticsPeriodDays}{" "}
+              days. Upgrade to Growth for 30-day history, or Scale for 90-day
+              history.
             </p>
           </Banner>
         ) : null}

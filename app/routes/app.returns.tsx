@@ -51,7 +51,7 @@ import {
   toActionFailure,
 } from "../lib/validation.server";
 import { loadCapabilities } from "../models/plan-gating.server";
-import type { PlanCapabilities } from "../billing/capabilities";
+import { describePlanContext, type PlanCapabilities } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
 import type { loader as detailLoader } from "./app.returns.detail";
 import { useCsvExport } from "../hooks/use-csv-export";
@@ -109,11 +109,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         );
       }
       return await deleteDecisionEvent(session.shop, formData);
-    }
-    if (!capabilities.hasActivePlan) {
-      return actionFailure(
-        "Start a plan from Billing to log moderation decisions.",
-      );
     }
     return await saveReturnDecision(session.shop, formData);
   } catch (error) {
@@ -1163,14 +1158,16 @@ function PlanBanner({ capabilities }: { capabilities: PlanCapabilities }) {
   if (!capabilities.hasActivePlan) {
     return (
       <Banner
-        title="Pick a plan to unlock ReturnGuard"
-        tone="warning"
-        action={{ content: "Open billing", url: "/app/billing" }}
+        title="You're on the Free plan"
+        tone="info"
+        action={{ content: "Compare paid plans", url: "/app/billing" }}
       >
         <p>
-          You're on Trial. Returns load in read-only mode (page size up to{" "}
-          {capabilities.maxQueuePageSize}). Subscribe to log decisions, export
-          CSV, and tune playbooks.
+          Risk scoring, saving moderation decisions, CSV export, and risk
+          settings are included at no cost (queue up to{" "}
+          {capabilities.maxQueuePageSize} rows per page). Upgrade to Starter for
+          larger pages, or Growth for automation playbooks, bulk actions, and
+          the full audit log.
         </p>
       </Banner>
     );
@@ -1183,7 +1180,7 @@ function PlanBanner({ capabilities }: { capabilities: PlanCapabilities }) {
       action={{ content: "Upgrade plan", url: "/app/billing" }}
     >
       <p>
-        You're on {capabilities.planLabel}. Bulk actions, automation playbooks,
+        {describePlanContext(capabilities)} Bulk actions, automation playbooks,
         and the audit log are available on Growth and Scale.
       </p>
     </Banner>

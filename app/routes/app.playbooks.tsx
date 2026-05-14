@@ -32,6 +32,7 @@ import {
 } from "../lib/validation.server";
 import { actionFailure, getFieldError } from "../lib/action-result";
 import { loadCapabilities } from "../models/plan-gating.server";
+import { describePlanContext } from "../billing/capabilities";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
@@ -134,9 +135,9 @@ export default function PlaybooksPage() {
             action={{ content: "Upgrade plan", url: "/app/billing" }}
           >
             <p>
-              You're on {capabilities.planLabel}. Existing playbooks are shown
-              read-only. Upgrade to Growth or Scale to create, edit, or pause
-              automation rules.
+              {describePlanContext(capabilities)}{" "}
+              Existing playbooks are shown read-only. Upgrade to Growth or Scale
+              to create, edit, or pause automation rules.
             </p>
           </Banner>
         ) : null}

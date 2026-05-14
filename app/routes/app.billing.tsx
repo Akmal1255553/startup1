@@ -229,7 +229,7 @@ export default function BillingPage() {
   return (
     <Page
       title="Billing"
-      subtitle="Choose the plan that fits your store's return volume"
+      subtitle="Core return-risk tools are free forever — upgrade when you need automation or higher limits"
       backAction={{ content: "Dashboard", url: "/app" }}
     >
       <TitleBar title="Billing" />
@@ -262,6 +262,20 @@ export default function BillingPage() {
           subscriptionId={subscriptionId}
           isSubmitting={isSubmitting}
         />
+
+        {!hasActivePayment ? (
+          <Banner tone="info" title="Free plan includes the essentials">
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd">
+                Use risk scoring, the returns queue, moderation decisions, CSV
+                export, and saving thresholds at no charge. Paid plans add
+                larger queue pages, automation playbooks, bulk actions, audit
+                log, and longer analytics history — with a 21-day trial on
+                every subscription.
+              </Text>
+            </BlockStack>
+          </Banner>
+        ) : null}
 
         <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
           {plans.map((plan) => (
@@ -306,7 +320,7 @@ function CurrentPlanCard({
             <Text as="p" variant="bodyMd" tone="subdued">
               {hasActivePayment && planDescriptor
                 ? `${planDescriptor.name} — $${planDescriptor.monthlyPrice}/month`
-                : "No active paid plan. ReturnGuard runs in trial mode."}
+                : "No active subscription — you're on the Free plan with core features unlocked."}
             </Text>
           </BlockStack>
           {hasActivePayment ? (
@@ -314,8 +328,8 @@ function CurrentPlanCard({
               Active
             </Badge>
           ) : (
-            <Badge tone="attention" toneAndProgressLabelOverride=" ">
-              Trial
+            <Badge tone="info" toneAndProgressLabelOverride=" ">
+              Free
             </Badge>
           )}
         </InlineStack>
@@ -452,7 +466,7 @@ function PlanCard({
     ? "Confirming…"
     : hasActivePayment
       ? "Switch to this plan"
-      : "Start free trial";
+      : "Start 21-day trial";
 
   return (
     <Card

@@ -2,42 +2,43 @@ import { describe, expect, it } from "vitest";
 
 import { PLAN_GROWTH, PLAN_SCALE, PLAN_STARTER } from "./plans";
 import {
+  describePlanContext,
   describeRequiredPlan,
   getCapabilities,
   isFeatureAvailable,
 } from "./capabilities";
 
 describe("getCapabilities", () => {
-  it("returns Trial caps when no active payment", () => {
+  it("returns Free caps when no active payment", () => {
     const caps = getCapabilities(null, false);
     expect(caps).toMatchObject({
       planId: null,
-      planLabel: "Trial",
+      planLabel: "Free",
       hasActivePlan: false,
-      maxQueuePageSize: 10,
+      maxQueuePageSize: 25,
       canBulkAct: false,
-      canExportCsv: false,
+      canExportCsv: true,
       canUseAutomation: false,
       canUseAuditLog: false,
-      canSaveSettings: false,
+      canSaveSettings: true,
       hasAdvancedAnalytics: false,
-      analyticsPeriodDays: 7,
+      analyticsPeriodDays: 14,
     });
   });
 
-  it("returns Trial caps when planId is set but payment inactive", () => {
-    expect(getCapabilities(PLAN_GROWTH, false).planLabel).toBe("Trial");
+  it("returns Free caps when planId is set but payment inactive", () => {
+    expect(getCapabilities(PLAN_GROWTH, false).planLabel).toBe("Free");
   });
 
-  it("returns Trial caps when payment active but planId is null", () => {
-    expect(getCapabilities(null, true).planLabel).toBe("Trial");
+  it("returns Free caps when payment active but planId is null", () => {
+    expect(getCapabilities(null, true).planLabel).toBe("Free");
   });
 
   it("returns Starter caps", () => {
     const caps = getCapabilities(PLAN_STARTER, true);
     expect(caps.planLabel).toBe("Starter");
     expect(caps.hasActivePlan).toBe(true);
-    expect(caps.maxQueuePageSize).toBe(25);
+    expect(caps.maxQueuePageSize).toBe(50);
     expect(caps.canExportCsv).toBe(true);
     expect(caps.canSaveSettings).toBe(true);
     expect(caps.canBulkAct).toBe(false);
@@ -67,11 +68,11 @@ describe("getCapabilities", () => {
     expect(caps.canUseAuditLog).toBe(true);
   });
 
-  it("falls back to Trial caps for unknown plan id", () => {
+  it("falls back to Free caps for unknown plan id", () => {
     expect(
       getCapabilities("Mystery" as unknown as typeof PLAN_GROWTH, true)
         .planLabel,
-    ).toBe("Trial");
+    ).toBe("Free");
   });
 });
 
@@ -79,10 +80,10 @@ describe("isFeatureAvailable", () => {
   const starter = getCapabilities(PLAN_STARTER, true);
   const growth = getCapabilities(PLAN_GROWTH, true);
   const scale = getCapabilities(PLAN_SCALE, true);
-  const trial = getCapabilities(null, false);
+  const free = getCapabilities(null, false);
 
   it("gates bulk to Growth+", () => {
-    expect(isFeatureAvailable(trial, "bulk")).toBe(false);
+    expect(isFeatureAvailable(free, "bulk")).toBe(false);
     expect(isFeatureAvailable(starter, "bulk")).toBe(false);
     expect(isFeatureAvailable(growth, "bulk")).toBe(true);
     expect(isFeatureAvailable(scale, "bulk")).toBe(true);
@@ -98,14 +99,14 @@ describe("isFeatureAvailable", () => {
     expect(isFeatureAvailable(growth, "auditLog")).toBe(true);
   });
 
-  it("gates export to any paid plan (Starter+)", () => {
-    expect(isFeatureAvailable(trial, "export")).toBe(false);
+  it("allows export on Free and paid", () => {
+    expect(isFeatureAvailable(free, "export")).toBe(true);
     expect(isFeatureAvailable(starter, "export")).toBe(true);
     expect(isFeatureAvailable(growth, "export")).toBe(true);
   });
 
-  it("gates saveSettings to any paid plan (Starter+)", () => {
-    expect(isFeatureAvailable(trial, "saveSettings")).toBe(false);
+  it("allows saveSettings on Free and paid", () => {
+    expect(isFeatureAvailable(free, "saveSettings")).toBe(true);
     expect(isFeatureAvailable(starter, "saveSettings")).toBe(true);
   });
 
@@ -113,6 +114,20 @@ describe("isFeatureAvailable", () => {
     expect(isFeatureAvailable(starter, "advancedAnalytics")).toBe(false);
     expect(isFeatureAvailable(growth, "advancedAnalytics")).toBe(false);
     expect(isFeatureAvailable(scale, "advancedAnalytics")).toBe(true);
+  });
+});
+
+describe("describePlanContext", () => {
+  it("uses natural phrasing for Free", () => {
+    expect(describePlanContext(getCapabilities(null, false))).toBe(
+      "You're on the Free plan.",
+    );
+  });
+
+  it("uses natural phrasing for paid plans", () => {
+    expect(describePlanContext(getCapabilities(PLAN_GROWTH, true))).toBe(
+      "You're on the Growth plan.",
+    );
   });
 });
 
@@ -127,8 +142,8 @@ describe("describeRequiredPlan", () => {
     expect(describeRequiredPlan("advancedAnalytics")).toBe("Scale");
   });
 
-  it("names any paid plan for base paid features", () => {
-    expect(describeRequiredPlan("export")).toBe("any paid plan");
-    expect(describeRequiredPlan("saveSettings")).toBe("any paid plan");
+  it("names Free for baseline features", () => {
+    expect(describeRequiredPlan("export")).toBe("Free plan (included)");
+    expect(describeRequiredPlan("saveSettings")).toBe("Free plan (included)");
   });
 });

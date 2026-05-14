@@ -27,18 +27,24 @@ export type PlanCapabilities = {
   analyticsPeriodDays: number;
 };
 
-const TRIAL: PlanCapabilities = {
+/**
+ * Default tier when Shopify reports no active subscription.
+ * Kept intentionally generous so merchants get value before paying —
+ * paid plans differentiate on limits, automation, audit log, bulk, and
+ * analytics depth.
+ */
+const FREE: PlanCapabilities = {
   planId: null,
-  planLabel: "Trial",
+  planLabel: "Free",
   hasActivePlan: false,
-  maxQueuePageSize: 10,
+  maxQueuePageSize: 25,
   canBulkAct: false,
-  canExportCsv: false,
+  canExportCsv: true,
   canUseAutomation: false,
   canUseAuditLog: false,
-  canSaveSettings: false,
+  canSaveSettings: true,
   hasAdvancedAnalytics: false,
-  analyticsPeriodDays: 7,
+  analyticsPeriodDays: 14,
 };
 
 const CAPABILITIES_BY_PLAN: Record<PlanId, PlanCapabilities> = {
@@ -46,7 +52,7 @@ const CAPABILITIES_BY_PLAN: Record<PlanId, PlanCapabilities> = {
     planId: PLAN_STARTER,
     planLabel: "Starter",
     hasActivePlan: true,
-    maxQueuePageSize: 25,
+    maxQueuePageSize: 50,
     canBulkAct: false,
     canExportCsv: true,
     canUseAutomation: false,
@@ -87,8 +93,16 @@ export function getCapabilities(
   planId: PlanId | null,
   hasActivePayment: boolean,
 ): PlanCapabilities {
-  if (!hasActivePayment || !planId) return TRIAL;
-  return CAPABILITIES_BY_PLAN[planId] ?? TRIAL;
+  if (!hasActivePayment || !planId) return FREE;
+  return CAPABILITIES_BY_PLAN[planId] ?? FREE;
+}
+
+/** Opening sentence for plan banners (natural English, incl. Free). */
+export function describePlanContext(caps: PlanCapabilities): string {
+  if (!caps.hasActivePlan) {
+    return "You're on the Free plan.";
+  }
+  return `You're on the ${caps.planLabel} plan.`;
 }
 
 export function isFeatureAvailable(
@@ -135,6 +149,6 @@ export function describeRequiredPlan(
       return "Scale";
     case "export":
     case "saveSettings":
-      return "any paid plan";
+      return "Free plan (included)";
   }
 }

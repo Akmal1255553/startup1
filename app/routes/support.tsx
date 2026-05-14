@@ -74,10 +74,12 @@ export default function SupportPage() {
 
       <h3 style={h3}>How do plan limits work?</h3>
       <p>
-        Every paid plan enforces a different set of capabilities (queue page
-        size, bulk actions, CSV export, audit log, automation, analytics
-        window). The billing page lists what each plan unlocks; you can switch
-        plans any time and the change is prorated by Shopify.
+        ReturnGuard includes a <strong>Free</strong> tier: risk scoring, the
+        returns queue, saving moderation decisions, CSV export, and risk
+        settings. Paid plans add larger queue pages, automation playbooks, bulk
+        actions, the audit log, and longer analytics windows. The in-app Billing
+        page lists exact limits; you can switch plans any time and Shopify
+        prorates the change.
       </p>
 
       <h3 style={h3}>How do I cancel?</h3>
