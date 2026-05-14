@@ -31,7 +31,7 @@ import {
 import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
 import { useCsvExport } from "../hooks/use-csv-export";
-import styles from "./app._index.module.css";
+import styles from "../styles/dashboard-index.module.css";
 
 const playbooks = [
   "Flag high-value refund requests",
