@@ -1,14 +1,27 @@
+import type { LoaderFunctionArgs } from "@remix-run/node";
+import { json } from "@remix-run/node";
 import {
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLoaderData,
 } from "@remix-run/react";
 
+import { I18nProvider } from "./i18n/i18n-context";
+import { resolveLocale } from "./i18n/resolver.server";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const locale = await resolveLocale(request);
+  return json({ locale });
+};
+
 export default function App() {
+  const { locale } = useLoaderData<typeof loader>();
+
   return (
-    <html>
+    <html lang={locale}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -21,7 +34,9 @@ export default function App() {
         <Links />
       </head>
       <body>
-        <Outlet />
+        <I18nProvider locale={locale}>
+          <Outlet />
+        </I18nProvider>
         <ScrollRestoration />
         <Scripts />
       </body>

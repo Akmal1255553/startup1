@@ -1,6 +1,16 @@
-import type { LinksFunction, MetaFunction } from "@remix-run/node";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "@remix-run/node";
+import { json } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
 
+import { LanguageSwitcherLegal } from "../components/language-switcher-legal";
 import { LegalLayout } from "../legal/legal-layout";
+import { getLandingCopy } from "../i18n/messages/landing";
+import { resolveLocale } from "../i18n/resolver.server";
+import { toMarketingLocale } from "../i18n/types";
 
 export const meta: MetaFunction = () => [
   { title: "Privacy Policy · ReturnGuard AI" },
@@ -10,6 +20,11 @@ export const meta: MetaFunction = () => [
       "How ReturnGuard AI collects, uses, and protects Shopify store data and customer information.",
   },
 ];
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const locale = await resolveLocale(request);
+  return json({ locale });
+};
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -25,11 +40,23 @@ export const links: LinksFunction = () => [
 ];
 
 export default function PrivacyPage() {
+  const { locale } = useLoaderData<typeof loader>();
+  const L = getLandingCopy(toMarketingLocale(locale));
+
   return (
     <LegalLayout
       title="Privacy Policy"
       updated="May 13, 2026"
       intro="ReturnGuard AI is a Shopify app that helps merchants score, review, and decide on customer return requests. This policy explains what data we receive from Shopify on a merchant's behalf, how we use it, and how we delete it."
+      privacyLabel={L.navPrivacy}
+      supportLabel={L.navSupport}
+      headerExtra={
+        <LanguageSwitcherLegal
+          locale={locale}
+          langLabel={L.langLabel}
+          redirectPath="/privacy"
+        />
+      }
     >
       <h2 style={h2}>1. Who this policy applies to</h2>
       <p>

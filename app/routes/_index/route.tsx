@@ -4,21 +4,26 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "@remix-run/node";
-import { redirect } from "@remix-run/node";
+import { json, redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 
+import { LanguageSwitcherMarketing } from "../../components/language-switcher-marketing";
+import { useI18n } from "../../i18n/i18n-context";
+import { getLandingCopy } from "../../i18n/messages/landing";
+import { type Locale, toMarketingLocale } from "../../i18n/types";
+import { resolveLocale } from "../../i18n/resolver.server";
 import { login } from "../../shopify.server";
 
 import styles from "./styles.module.css";
 
-export const meta: MetaFunction = () => [
-  { title: "ReturnGuard AI | Returns intelligence for Shopify" },
-  {
-    name: "description",
-    content:
-      "ReturnGuard AI helps Shopify teams flag risky returns, protect margins, and keep refunds moving fast.",
-  },
-];
+export const meta: MetaFunction<typeof loader> = ({ data }) => {
+  const locale = (data?.locale as Locale | undefined) ?? "en";
+  const L = getLandingCopy(toMarketingLocale(locale));
+  return [
+    { title: L.metaTitle },
+    { name: "description", content: L.metaDescription },
+  ];
+};
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -34,7 +39,8 @@ export const links: LinksFunction = () => [
 ];
 
 export const headers: HeadersFunction = () => ({
-  "Cache-Control": "public, max-age=300, s-maxage=600",
+  // Avoid stale HTML on CDNs after deploys (language UI lives in document markup).
+  "Cache-Control": "public, max-age=0, s-maxage=120, must-revalidate",
 });
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -44,98 +50,55 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return {
+  const locale = await resolveLocale(request);
+
+  return json({
     devStore: "store-fbugaeho.myshopify.com",
     showForm: Boolean(login),
-  };
+    locale,
+  });
 };
-
-const metrics = [
-  ["31%", "Fewer high-risk refunds settled without review"],
-  ["4.8h", "Median time saved on triage per merchant / week"],
-  ["92%", "Return cases auto-routed with a clear risk band"],
-];
-
-const features = [
-  {
-    title: "Real Shopify returns",
-    description:
-      "Each row ties to a live Return in Admin—status, line context, and parent order in one place.",
-  },
-  {
-    title: "Explainable risk scoring",
-    description:
-      "Value, payment state, fulfillment, and customer signals surface as reasons, not a black box.",
-  },
-  {
-    title: "Playbooks that match your policy",
-    description:
-      "No-code rules for thresholds, repeat patterns, and escalation—without leaving the embedded app.",
-  },
-  {
-    title: "Decision trail & analytics",
-    description:
-      "Approvals, holds, and reviews are recorded for compliance, coaching, and trending dashboards.",
-  },
-  {
-    title: "Billing-ready plans",
-    description:
-      "Starter to scale tiers so you can align packaging with how serious the merchant is about refunds.",
-  },
-  {
-    title: "Built for embedded Admin",
-    description:
-      "Runs where your team already works—Polaris-aligned UI inside Shopify without context switching.",
-  },
-];
-
-const steps = [
-  {
-    n: "01",
-    title: "Connect & scope",
-    text: "Install on your dev or production shop; approvals use standard Shopify OAuth and scopes.",
-  },
-  {
-    n: "02",
-    title: "Tune thresholds",
-    text: "Adjust review and hold bands, playbook rules, and what “risky” means for your catalog.",
-  },
-  {
-    n: "03",
-    title: "Operate the queue",
-    text: "Triage returns, log decisions in one click, export or analyze without spreadsheets.",
-  },
-];
 
 export default function Index() {
   const { devStore, showForm } = useLoaderData<typeof loader>();
+  const { locale } = useI18n();
+  const L = getLandingCopy(toMarketingLocale(locale));
 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <nav className={styles.nav} aria-label="Main navigation">
-          <a className={styles.brand} href="/">
-            <span className={styles.brandMark} aria-hidden="true" />
-            <span className={styles.brandText}>ReturnGuard AI</span>
-          </a>
+          <div className={styles.navStart}>
+            <a className={styles.brand} href="/">
+              <span className={styles.brandMark} aria-hidden="true" />
+              <span className={styles.brandText}>ReturnGuard AI</span>
+            </a>
+            <span className={styles.navLangWrap}>
+              <LanguageSwitcherMarketing
+                locale={locale}
+                langLabel={L.langLabel}
+                redirectPath="/"
+              />
+            </span>
+          </div>
           <div className={styles.navLinks}>
             <a className={styles.navItem} href="#product">
-              Product
+              {L.navProduct}
             </a>
             <a className={styles.navItem} href="#workflow">
-              Workflow
+              {L.navWorkflow}
             </a>
             <a className={styles.navItem} href="#install">
-              Install
+              {L.navInstall}
             </a>
             <a className={styles.navItem} href="/privacy">
-              Privacy
+              {L.navPrivacy}
             </a>
             <a className={styles.navItem} href="/support">
-              Support
+              {L.navSupport}
             </a>
             <a className={styles.navCta} href="#demo">
-              View preview
+              {L.navPreview}
             </a>
           </div>
         </nav>
@@ -146,15 +109,11 @@ export default function Index() {
           <div className={styles.heroBg} aria-hidden="true" />
           <div className={styles.heroInner}>
             <div className={styles.heroCopy}>
-              <p className={styles.eyebrow}>Shopify · Returns operations</p>
+              <p className={styles.eyebrow}>{L.heroEyebrow}</p>
               <h1 id="hero-heading" className={styles.heroTitle}>
-                Control refund risk before it hits your margin.
+                {L.heroTitle}
               </h1>
-              <p className={styles.lede}>
-                ReturnGuard AI brings return requests into a single review
-                surface—scored, explainable, and auditable—so finance and
-                support stay aligned without leaving Shopify Admin.
-              </p>
+              <p className={styles.lede}>{L.heroLede}</p>
 
               {showForm ? (
                 <div className={styles.ctaRow}>
@@ -162,16 +121,14 @@ export default function Index() {
                     className={styles.btnPrimary}
                     href={`/auth/login?shop=${devStore}`}
                   >
-                    Open dev store
+                    {L.btnOpenDev}
                   </a>
                   <a className={styles.btnGhost} href="#demo">
-                    See interface
+                    {L.btnSeeInterface}
                   </a>
                 </div>
               ) : (
-                <p className={styles.ledeMuted}>
-                  Install flow is disabled in this environment.
-                </p>
+                <p className={styles.ledeMuted}>{L.installDisabled}</p>
               )}
 
               {showForm ? (
@@ -181,7 +138,7 @@ export default function Index() {
                   action="/auth/login"
                 >
                   <label className={styles.srOnly} htmlFor="shop-domain">
-                    Store domain
+                    {L.labelStoreDomain}
                   </label>
                   <input
                     id="shop-domain"
@@ -189,46 +146,46 @@ export default function Index() {
                     type="text"
                     name="shop"
                     defaultValue={devStore}
-                    placeholder="your-store.myshopify.com"
+                    placeholder={L.placeholderShop}
                     autoComplete="url"
                   />
                   <button className={styles.btnSecondary} type="submit">
-                    Use another store
+                    {L.btnOtherStore}
                   </button>
                 </Form>
               ) : null}
 
               <ul className={styles.trustChips}>
-                <li>Embedded app</li>
-                <li>Return-level queue</li>
-                <li>Audit-friendly history</li>
+                <li>{L.chipEmbedded}</li>
+                <li>{L.chipQueue}</li>
+                <li>{L.chipAudit}</li>
               </ul>
             </div>
 
             <div
               className={styles.mockFrame}
               id="demo"
-              aria-label="Product interface preview"
+              aria-label={L.mockAria}
             >
               <div className={styles.mockChrome}>
                 <span className={styles.mockDot} />
                 <span className={styles.mockDot} />
                 <span className={styles.mockDot} />
-                <span className={styles.mockUrl}>admin.shopify.com · Returns</span>
+                <span className={styles.mockUrl}>{L.mockUrl}</span>
               </div>
               <div className={styles.mockBody}>
                 <div className={styles.mockToolbar}>
                   <div>
-                    <p className={styles.mockLabel}>Returns queue</p>
-                    <p className={styles.mockTitle}>Today · 12 open</p>
+                    <p className={styles.mockLabel}>{L.mockReturnsQueue}</p>
+                    <p className={styles.mockTitle}>{L.mockToday}</p>
                   </div>
-                  <span className={styles.mockBadge}>Live sync</span>
+                  <span className={styles.mockBadge}>{L.mockLiveSync}</span>
                 </div>
                 <div className={styles.mockHeroStat}>
                   <div>
-                    <p className={styles.mockLabel}>Portfolio risk index</p>
+                    <p className={styles.mockLabel}>{L.mockPortfolioRisk}</p>
                     <p className={styles.mockScore}>87</p>
-                    <p className={styles.mockSub}>Weighted by value &amp; velocity</p>
+                    <p className={styles.mockSub}>{L.mockWeighted}</p>
                   </div>
                   <div className={styles.mockRing} aria-hidden="true" />
                 </div>
@@ -238,21 +195,21 @@ export default function Index() {
                       <strong>#RMA-1048</strong>
                       <span className={styles.mockMuted}>Order #4812</span>
                     </span>
-                    <span className={styles.mockTagHigh}>High risk</span>
+                    <span className={styles.mockTagHigh}>{L.mockHighRisk}</span>
                   </div>
                   <div className={styles.mockRow}>
                     <span className={styles.mockCellMain}>
                       <strong>#RMA-1031</strong>
                       <span className={styles.mockMuted}>Order #4798</span>
                     </span>
-                    <span className={styles.mockTagMid}>Review</span>
+                    <span className={styles.mockTagMid}>{L.mockReview}</span>
                   </div>
                   <div className={styles.mockRow}>
                     <span className={styles.mockCellMain}>
                       <strong>#RMA-1026</strong>
                       <span className={styles.mockMuted}>Order #4791</span>
                     </span>
-                    <span className={styles.mockTagOk}>Approved</span>
+                    <span className={styles.mockTagOk}>{L.mockApproved}</span>
                   </div>
                 </div>
               </div>
@@ -260,12 +217,12 @@ export default function Index() {
           </div>
         </section>
 
-        <section className={styles.metricsBand} aria-label="Outcomes">
+        <section className={styles.metricsBand} aria-label={L.metricsAria}>
           <div className={styles.metricsInner}>
-            {metrics.map(([value, label]) => (
-              <div className={styles.metricCard} key={label}>
-                <strong className={styles.metricValue}>{value}</strong>
-                <span className={styles.metricLabel}>{label}</span>
+            {L.metrics.map((m) => (
+              <div className={styles.metricCard} key={m.label}>
+                <strong className={styles.metricValue}>{m.value}</strong>
+                <span className={styles.metricLabel}>{m.label}</span>
               </div>
             ))}
           </div>
@@ -273,17 +230,14 @@ export default function Index() {
 
         <section className={styles.section} id="product" aria-labelledby="feat-heading">
           <div className={styles.sectionHead}>
-            <p className={styles.eyebrow}>Platform</p>
+            <p className={styles.eyebrow}>{L.platformEyebrow}</p>
             <h2 id="feat-heading" className={styles.sectionTitle}>
-              Everything your team needs to decide faster.
+              {L.featTitle}
             </h2>
-            <p className={styles.sectionLead}>
-              Purpose-built for merchants who treat returns as a margin line
-              item—not an afterthought.
-            </p>
+            <p className={styles.sectionLead}>{L.featLead}</p>
           </div>
           <div className={styles.featureGrid}>
-            {features.map((f) => (
+            {L.features.map((f) => (
               <article className={styles.featureCard} key={f.title}>
                 <span className={styles.featureAccent} aria-hidden="true" />
                 <h3 className={styles.featureTitle}>{f.title}</h3>
@@ -300,13 +254,13 @@ export default function Index() {
         >
           <div className={styles.workflowInner}>
             <div className={styles.workflowIntro}>
-              <p className={styles.eyebrow}>How it works</p>
+              <p className={styles.eyebrow}>{L.workflowEyebrow}</p>
               <h2 id="workflow-heading" className={styles.sectionTitle}>
-                From install to disciplined triage—in three moves.
+                {L.workflowTitle}
               </h2>
             </div>
             <ol className={styles.steps}>
-              {steps.map((s) => (
+              {L.steps.map((s) => (
                 <li className={styles.step} key={s.n}>
                   <span className={styles.stepNum}>{s.n}</span>
                   <h3 className={styles.stepTitle}>{s.title}</h3>
@@ -320,22 +274,19 @@ export default function Index() {
         <section className={styles.ctaBand} id="install" aria-labelledby="cta-heading">
           <div className={styles.ctaInner}>
             <h2 id="cta-heading" className={styles.ctaTitle}>
-              Ready to tighten your return posture?
+              {L.ctaTitle}
             </h2>
-            <p className={styles.ctaLead}>
-              Start on a development store, validate your playbook, then roll out
-              to production when your team is aligned.
-            </p>
+            <p className={styles.ctaLead}>{L.ctaLead}</p>
             {showForm ? (
               <div className={styles.ctaActions}>
                 <a
                   className={styles.btnPrimaryInverse}
                   href={`/auth/login?shop=${devStore}`}
                 >
-                  Install on dev store
+                  {L.btnInstallDev}
                 </a>
                 <a className={styles.btnLinkLight} href="#product">
-                  Explore capabilities
+                  {L.btnExplore}
                 </a>
               </div>
             ) : null}
@@ -345,17 +296,23 @@ export default function Index() {
 
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
-          <span className={styles.footerBrand}>ReturnGuard AI</span>
+          <div className={styles.footerCol}>
+            <span className={styles.footerBrand}>ReturnGuard AI</span>
+            <LanguageSwitcherMarketing
+              locale={locale}
+              langLabel={L.langLabel}
+              redirectPath="/"
+              variant="footer"
+            />
+          </div>
           <div className={styles.footerLinks}>
             <a className={styles.footerLink} href="/privacy">
-              Privacy
+              {L.footerPrivacy}
             </a>
             <a className={styles.footerLink} href="/support">
-              Support
+              {L.footerSupport}
             </a>
-            <span className={styles.footerNote}>
-              Not affiliated with Shopify Inc.
-            </span>
+            <span className={styles.footerNote}>{L.footerNote}</span>
           </div>
         </div>
       </footer>

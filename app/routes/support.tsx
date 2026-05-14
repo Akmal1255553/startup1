@@ -1,15 +1,29 @@
-import type { LinksFunction, MetaFunction } from "@remix-run/node";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "@remix-run/node";
+import { json } from "@remix-run/node";
+import { useLoaderData } from "@remix-run/react";
 
+import { LanguageSwitcherLegal } from "../components/language-switcher-legal";
 import { LegalLayout } from "../legal/legal-layout";
+import { getLandingCopy } from "../i18n/messages/landing";
+import { resolveLocale } from "../i18n/resolver.server";
+import { toMarketingLocale } from "../i18n/types";
 
-export const meta: MetaFunction = () => [
-  { title: "Support · ReturnGuard AI" },
+export const meta: MetaFunction = () => [  { title: "Support · ReturnGuard AI" },
   {
     name: "description",
     content:
       "Contact, install help, and troubleshooting guides for ReturnGuard AI on Shopify.",
   },
 ];
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const locale = await resolveLocale(request);
+  return json({ locale });
+};
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -25,11 +39,23 @@ export const links: LinksFunction = () => [
 ];
 
 export default function SupportPage() {
+  const { locale } = useLoaderData<typeof loader>();
+  const L = getLandingCopy(toMarketingLocale(locale));
+
   return (
     <LegalLayout
       title="Support"
       updated="May 13, 2026"
       intro="ReturnGuard AI is maintained by a small team. We answer support requests on every business day."
+      privacyLabel={L.navPrivacy}
+      supportLabel={L.navSupport}
+      headerExtra={
+        <LanguageSwitcherLegal
+          locale={locale}
+          langLabel={L.langLabel}
+          redirectPath="/support"
+        />
+      }
     >
       <h2 style={h2}>Contact</h2>
       <p>

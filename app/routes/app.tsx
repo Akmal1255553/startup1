@@ -3,8 +3,12 @@ import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
+import { Box, InlineStack } from "@shopify/polaris";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 
+import { LanguageSwitcherApp } from "../components/language-switcher-app";
+import { useI18n } from "../i18n/i18n-context";
+import { getPolarisI18n } from "../i18n/polaris-locale";
 import { authenticate } from "../shopify.server";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
@@ -17,33 +21,39 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export default function App() {
   const { apiKey } = useLoaderData<typeof loader>();
+  const { locale, app } = useI18n();
 
   return (
-    <AppProvider isEmbeddedApp apiKey={apiKey}>
+    <AppProvider isEmbeddedApp apiKey={apiKey} i18n={getPolarisI18n(locale)}>
+      <Box paddingInline="400" paddingBlockStart="300" paddingBlockEnd="200">
+        <InlineStack align="end">
+          <LanguageSwitcherApp />
+        </InlineStack>
+      </Box>
       <NavMenu>
         <Link to="/app" rel="home" prefetch="intent">
-          Dashboard
+          {app.navDashboard}
         </Link>
         <Link to="/app/onboarding" prefetch="intent">
-          Get Started
+          {app.navGetStarted}
         </Link>
         <Link to="/app/returns" prefetch="intent">
-          Returns Queue
+          {app.navReturns}
         </Link>
         <Link to="/app/analytics" prefetch="intent">
-          Analytics
+          {app.navAnalytics}
         </Link>
         <Link to="/app/audit-log" prefetch="intent">
-          Audit Log
+          {app.navAudit}
         </Link>
         <Link to="/app/playbooks" prefetch="intent">
-          Playbooks
+          {app.navPlaybooks}
         </Link>
         <Link to="/app/settings" prefetch="intent">
-          Settings
+          {app.navSettings}
         </Link>
         <Link to="/app/billing" prefetch="intent">
-          Billing
+          {app.navBilling}
         </Link>
       </NavMenu>
       <Outlet />

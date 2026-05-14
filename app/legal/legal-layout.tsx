@@ -11,11 +11,17 @@ export function LegalLayout({
   title,
   intro,
   updated,
+  privacyLabel,
+  supportLabel,
+  headerExtra,
   children,
 }: {
   title: string;
   intro?: string;
   updated: string;
+  privacyLabel: string;
+  supportLabel: string;
+  headerExtra?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -26,11 +32,12 @@ export function LegalLayout({
         </a>
         <nav style={styles.nav}>
           <a href="/privacy" style={styles.navLink}>
-            Privacy
+            {privacyLabel}
           </a>
           <a href="/support" style={styles.navLink}>
-            Support
+            {supportLabel}
           </a>
+          {headerExtra ? <div style={styles.navExtra}>{headerExtra}</div> : null}
         </nav>
       </header>
 
@@ -45,11 +52,11 @@ export function LegalLayout({
         <span>ReturnGuard AI · Not affiliated with Shopify Inc.</span>
         <span>
           <a href="/privacy" style={styles.footerLink}>
-            Privacy
+            {privacyLabel}
           </a>
           {" · "}
           <a href="/support" style={styles.footerLink}>
-            Support
+            {supportLabel}
           </a>
         </span>
       </footer>
@@ -82,7 +89,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   nav: {
     display: "flex",
-    gap: 24,
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 16,
+    justifyContent: "flex-end",
+  },
+  navExtra: {
+    marginLeft: 4,
   },
   navLink: {
     color: "#4b5563",

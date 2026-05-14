@@ -1,0 +1,61 @@
+.root {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+}
+
+.root[data-variant="footer"] .label {
+  font-size: 0.75rem;
+}
+
+.root[data-variant="footer"] .segLink,
+.root[data-variant="footer"] .segActive {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft, #3d4f48);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seg {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line-strong, rgb(11 18 16 / 0.18));
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 2px rgb(11 18 16 / 0.06);
+  overflow: hidden;
+}
+
+.segLink {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft, #3d4f48);
+  text-decoration: none;
+  border-right: 1px solid var(--line, rgb(11 18 16 / 0.09));
+  white-space: nowrap;
+}
+
+.segLink:last-child {
+  border-right: none;
+}
+
+.segLink:hover {
+  color: var(--ink, #0b1210);
+  background: rgb(10 92 82 / 0.06);
+}
+
+.segActive {
+  color: var(--teal-deep, #064038);
+  background: rgb(10 92 82 / 0.1);
+  pointer-events: none;
+}
