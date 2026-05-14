@@ -1,5 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher, useLoaderData, useRevalidator } from "@remix-run/react";
+import type { ReactNode } from "react";
+import { useEffect } from "react";
 import {
   Badge,
   Banner,
@@ -7,8 +9,6 @@ import {
   Box,
   Button,
   Card,
-  DataTable,
-  InlineGrid,
   InlineStack,
   Layout,
   Page,
@@ -16,7 +16,6 @@ import {
   Text,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
-import { useEffect } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
@@ -32,6 +31,7 @@ import {
 import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
 import { useCsvExport } from "../hooks/use-csv-export";
+import styles from "./app._index.module.css";
 
 const playbooks = [
   "Flag high-value refund requests",
@@ -91,74 +91,81 @@ export default function Dashboard() {
   const marginEstimatePct = Math.round(
     settings.protectedMarginMultiplier * 100,
   );
-  const protectedMarginCaption =
-    summary.flaggedGmvTotal > 0
-      ? `${moneyFormatter.format(summary.flaggedGmvTotal)} in review+hold risk band × ${marginEstimatePct}% margin estimate (${summary.analyzedOrders} orders in view)`
-      : `${summary.analyzedOrders} recent orders in view — none in the review risk band yet`;
 
-  const riskCards = [
+  type RiskCardTone = "success" | "attention" | "critical";
+
+  const riskCards: {
+    label: string;
+    value: string;
+    change: ReactNode;
+    tone: RiskCardTone;
+  }[] = [
     {
       label: "Estimated margin protected",
       value: moneyFormatter.format(summary.protectedMargin),
-      change: protectedMarginCaption,
+      change:
+        summary.flaggedGmvTotal > 0 ? (
+          <BlockStack gap="050">
+            <Text as="span" variant="bodySm" tone="subdued">
+              {moneyFormatter.format(summary.flaggedGmvTotal)} in review+hold
+              risk band
+            </Text>
+            <Text as="span" variant="bodySm" tone="subdued">
+              × {marginEstimatePct}% margin estimate · {summary.analyzedOrders}{" "}
+              orders in view
+            </Text>
+          </BlockStack>
+        ) : (
+          <Text as="span" variant="bodySm" tone="subdued">
+            {summary.analyzedOrders} recent orders in view — none in the review
+            risk band yet
+          </Text>
+        ),
       tone: "success",
     },
     {
       label: "Manual review queue",
       value: String(summary.reviewCount),
-      change: `Risk ${settings.reviewRiskThreshold}-${settings.holdRiskThreshold - 1}`,
+      change: (
+        <Text as="span" variant="bodySm" tone="subdued">
+          Risk {settings.reviewRiskThreshold}-{settings.holdRiskThreshold - 1}
+        </Text>
+      ),
       tone: "attention",
     },
     {
       label: "Refund holds",
       value: String(summary.holdCount),
-      change: `Risk ${settings.holdRiskThreshold}+`,
+      change: (
+        <Text as="span" variant="bodySm" tone="subdued">
+          Risk {settings.holdRiskThreshold}+
+        </Text>
+      ),
       tone: "critical",
     },
     {
       label: "Approval ratio",
       value: `${summary.approvalRatio}%`,
-      change: `${summary.totalReturns} total returns`,
+      change: (
+        <Text as="span" variant="bodySm" tone="subdued">
+          {summary.totalReturns} total returns
+        </Text>
+      ),
       tone: "success",
     },
     {
       label: "Flagged returns",
       value: String(summary.flaggedReturns),
-      change: `${summary.averageRiskScore} avg risk score`,
+      change: (
+        <Text as="span" variant="bodySm" tone="subdued">
+          {summary.averageRiskScore} avg risk score
+        </Text>
+      ),
       tone: "attention",
     },
   ];
 
-  const rows = orders.slice(0, 8).map((order) => [
-    order.name,
-    <BlockStack key={`${order.id}-customer`} gap="050">
-      <Text as="span" variant="bodyMd">
-        {order.customer}
-      </Text>
-      <Text as="span" variant="bodySm" tone="subdued">
-        {order.financialStatus} / {order.fulfillmentStatus}
-      </Text>
-      <Text as="span" variant="bodySm" tone="subdued">
-        Placed{" "}
-        {new Date(order.createdAt).toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        })}
-      </Text>
-    </BlockStack>,
-    moneyFormatter.format(order.value),
-    <RiskMeter key={`${order.id}-risk`} order={order} />,
-    <BlockStack key={`${order.id}-action`} gap="100">
-      <Text as="span" variant="bodyMd">
-        {order.recommendation}
-      </Text>
-      <Text as="span" variant="bodySm" tone="subdued">
-        {order.narrative}
-      </Text>
-    </BlockStack>,
-    <DecisionControls key={`${order.id}-decision`} order={order} />,
-  ]);
+  const queueOrders = orders.slice(0, 8);
 
   return (
     <Page
@@ -235,50 +242,51 @@ export default function Dashboard() {
           </Card>
         ) : null}
 
-        <InlineGrid columns={{ xs: 1, md: 5 }} gap="400">
+        <div className={styles.metricGrid}>
           {riskCards.map((card) => (
-            <Box key={card.label} minHeight="100%">
-              <Card>
-                <BlockStack gap="300">
-                  <InlineStack
-                    align="space-between"
-                    blockAlign="start"
-                    gap="200"
-                  >
-                    <Box maxWidth="80%">
-                      <Text as="p" variant="bodyMd" tone="subdued">
-                        {card.label}
-                      </Text>
-                    </Box>
-                    <Badge
-                      tone={card.tone as "success" | "attention" | "critical"}
-                      toneAndProgressLabelOverride=" "
+            <div key={card.label} className={styles.metricCell}>
+              <Card padding="0">
+                <div className={styles.metricCardFlex}>
+                  <Box padding="400" paddingBlockEnd="200">
+                    <InlineStack
+                      align="space-between"
+                      blockAlign="start"
+                      gap="200"
                     >
-                      Live
-                    </Badge>
-                  </InlineStack>
+                      <Box maxWidth="75%">
+                        <Text as="p" variant="bodyMd" tone="subdued">
+                          {card.label}
+                        </Text>
+                      </Box>
+                      <Badge
+                        tone={
+                          card.tone as "success" | "attention" | "critical"
+                        }
+                        toneAndProgressLabelOverride=" "
+                      >
+                        Live
+                      </Badge>
+                    </InlineStack>
+                  </Box>
                   <div
+                    className={styles.metricValueGrow}
                     style={{
-                      minHeight: "3rem",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "flex-start",
+                      paddingInline: "var(--p-space-400)",
                       fontVariantNumeric: "tabular-nums",
-                      textAlign: "left",
                     }}
                   >
                     <Text as="p" variant="heading2xl">
                       {card.value}
                     </Text>
                   </div>
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    {card.change}
-                  </Text>
-                </BlockStack>
+                  <Box padding="400" paddingBlockStart="200">
+                    <div className={styles.metricCaption}>{card.change}</div>
+                  </Box>
+                </div>
               </Card>
-            </Box>
+            </div>
           ))}
-        </InlineGrid>
+        </div>
 
         <Layout>
           <Layout.Section>
@@ -300,26 +308,78 @@ export default function Dashboard() {
                 </InlineStack>
 
                 {orders.length ? (
-                  <DataTable
-                    columnContentTypes={[
-                      "text",
-                      "text",
-                      "numeric",
-                      "text",
-                      "text",
-                      "text",
-                    ]}
-                    headings={[
-                      "Order",
-                      "Customer",
-                      "Value",
-                      "Risk",
-                      "Recommendation",
-                      "Decision",
-                    ]}
-                    rows={rows}
-                    increasedTableDensity
-                  />
+                  <div className={styles.queueScroll}>
+                    <table className={styles.queueTable}>
+                      <thead>
+                        <tr>
+                          <th className={styles.colOrder}>Order</th>
+                          <th>Customer</th>
+                          <th className={styles.colValue}>Value</th>
+                          <th className={styles.colRisk}>Risk</th>
+                          <th className={styles.colGuidance}>
+                            {"Recommendation & context"}
+                          </th>
+                          <th className={styles.colDecision}>Decision</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {queueOrders.map((order) => (
+                          <tr key={order.id}>
+                            <td className={styles.colOrder}>
+                              <Text as="span" variant="bodyMd" fontWeight="semibold">
+                                {order.name}
+                              </Text>
+                            </td>
+                            <td>
+                              <BlockStack gap="050">
+                                <Text as="span" variant="bodyMd">
+                                  {order.customer}
+                                </Text>
+                                <Text as="span" variant="bodySm" tone="subdued">
+                                  {order.financialStatus} /{" "}
+                                  {order.fulfillmentStatus}
+                                </Text>
+                                <Text as="span" variant="bodySm" tone="subdued">
+                                  Placed{" "}
+                                  {new Date(order.createdAt).toLocaleDateString(
+                                    undefined,
+                                    {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                    },
+                                  )}
+                                </Text>
+                              </BlockStack>
+                            </td>
+                            <td className={styles.colValue}>
+                              <Text as="span" variant="bodyMd">
+                                {moneyFormatter.format(order.value)}
+                              </Text>
+                            </td>
+                            <td className={styles.colRisk}>
+                              <RiskMeter order={order} />
+                            </td>
+                            <td className={styles.colGuidance}>
+                              <BlockStack gap="100">
+                                <Text as="span" variant="bodyMd">
+                                  {order.recommendation}
+                                </Text>
+                                <div className={styles.narrativeClamp}>
+                                  <Text as="span" variant="bodySm" tone="subdued">
+                                    {order.narrative}
+                                  </Text>
+                                </div>
+                              </BlockStack>
+                            </td>
+                            <td className={styles.colDecision}>
+                              <DecisionControls order={order} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <Box
                     padding="600"
@@ -522,35 +582,33 @@ function DecisionControls({ order }: { order: RiskOrder }) {
     fetcher.formData?.get("decision")?.toString() || order.savedDecision;
 
   return (
-    <BlockStack gap="200">
-      <InlineStack gap="200">
-        <DecisionButton
-          decision="approved"
-          label="Approve"
-          order={order}
-          pressed={currentDecision === "approved"}
-          loading={isSaving && fetcher.formData?.get("decision") === "approved"}
-          tone="success"
-          fetcher={fetcher}
-        />
-        <DecisionButton
-          decision="review"
-          label="Review"
-          order={order}
-          pressed={currentDecision === "review"}
-          loading={isSaving && fetcher.formData?.get("decision") === "review"}
-          fetcher={fetcher}
-        />
-        <DecisionButton
-          decision="hold"
-          label="Hold"
-          order={order}
-          pressed={currentDecision === "hold"}
-          loading={isSaving && fetcher.formData?.get("decision") === "hold"}
-          tone="critical"
-          fetcher={fetcher}
-        />
-      </InlineStack>
+    <div className={styles.decisionInline}>
+      <DecisionButton
+        decision="approved"
+        label="Approve"
+        order={order}
+        pressed={currentDecision === "approved"}
+        loading={isSaving && fetcher.formData?.get("decision") === "approved"}
+        tone="success"
+        fetcher={fetcher}
+      />
+      <DecisionButton
+        decision="review"
+        label="Review"
+        order={order}
+        pressed={currentDecision === "review"}
+        loading={isSaving && fetcher.formData?.get("decision") === "review"}
+        fetcher={fetcher}
+      />
+      <DecisionButton
+        decision="hold"
+        label="Hold"
+        order={order}
+        pressed={currentDecision === "hold"}
+        loading={isSaving && fetcher.formData?.get("decision") === "hold"}
+        tone="critical"
+        fetcher={fetcher}
+      />
       {currentDecision ? (
         <Badge
           tone={getDecisionTone(currentDecision)}
@@ -563,7 +621,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
           No decision yet
         </Text>
       )}
-    </BlockStack>
+    </div>
   );
 }
 
