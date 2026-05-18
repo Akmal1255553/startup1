@@ -23,11 +23,15 @@ export function LanguageSwitcherApp() {
   const go = useCallback(
     (lng: string) => {
       setOpen(false);
-      window.location.assign(
-        `/set-locale?lng=${encodeURIComponent(lng)}&redirect=${redirect}`,
-      );
+      const params = new URLSearchParams(location.search);
+      const shop = params.get("shop");
+      let href = `/set-locale?lng=${encodeURIComponent(lng)}&redirect=${redirect}`;
+      if (shop) {
+        href += `&shop=${encodeURIComponent(shop)}`;
+      }
+      window.location.assign(href);
     },
-    [redirect],
+    [redirect, location.search],
   );
 
   const activator = (

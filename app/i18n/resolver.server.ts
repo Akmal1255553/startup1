@@ -1,6 +1,7 @@
 import type { Locale } from "./types";
 import { isLocale } from "./types";
 import { readLocaleCookie } from "./locale-cookie.server";
+import { readShopLocale, shopFromRequestUrl } from "./shop-locale.server";
 
 function localeFromAcceptLanguage(header: string | null): Locale | null {
   if (!header) return null;
@@ -28,11 +29,28 @@ function localeFromAcceptLanguage(header: string | null): Locale | null {
   return null;
 }
 
-export async function resolveLocale(request: Request): Promise<Locale> {
+export async function resolveLocale(
+  request: Request,
+  options?: {
+    /** Shop from an authenticated embedded session (when URL has no `shop` param). */
+    authenticatedShop?: string;
+    sessionLocale?: string | null;
+  },
+): Promise<Locale> {
   const fromCookie = await readLocaleCookie(request.headers.get("Cookie"));
   if (fromCookie) return fromCookie;
 
+  if (options?.sessionLocale && isLocale(options.sessionLocale)) {
+    return options.sessionLocale;
+  }
+
   const url = new URL(request.url);
+  const shop = options?.authenticatedShop ?? shopFromRequestUrl(url);
+  if (shop) {
+    const fromShop = await readShopLocale(shop);
+    if (fromShop) return fromShop;
+  }
+
   // Embedded admin: default English until the merchant picks a language in-app
   // (avoids mixed RU nav + EN body from browser Accept-Language alone).
   if (url.pathname.startsWith("/app")) {

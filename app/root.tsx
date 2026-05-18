@@ -11,9 +11,27 @@ import {
 
 import { I18nProvider } from "./i18n/i18n-context";
 import { resolveLocale } from "./i18n/resolver.server";
+import { authenticate } from "./shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const locale = await resolveLocale(request);
+  const url = new URL(request.url);
+  let authenticatedShop: string | undefined;
+  let sessionLocale: string | null | undefined;
+
+  if (url.pathname.startsWith("/app")) {
+    try {
+      const { session } = await authenticate.admin(request);
+      authenticatedShop = session.shop;
+      sessionLocale = session.locale ?? null;
+    } catch {
+      // Public / unauthenticated app edge cases fall through.
+    }
+  }
+
+  const locale = await resolveLocale(request, {
+    authenticatedShop,
+    sessionLocale,
+  });
   return json({ locale });
 };
 

@@ -3,12 +3,15 @@ import { createCookie } from "@remix-run/node";
 import type { Locale } from "./types";
 import { isLocale } from "./types";
 
+const isProd = process.env.NODE_ENV === "production";
+
 export const localeCookie = createCookie("rg_locale", {
   path: "/",
-  sameSite: "lax",
+  // Embedded Shopify admin runs in a cross-site iframe; Lax cookies are often dropped.
+  sameSite: isProd ? "none" : "lax",
   httpOnly: false,
   maxAge: 60 * 60 * 24 * 365,
-  secure: process.env.NODE_ENV === "production",
+  secure: isProd,
 });
 
 export async function readLocaleCookie(
