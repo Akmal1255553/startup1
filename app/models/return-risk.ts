@@ -96,8 +96,11 @@ export function getDecisionTone(decision: string) {
   return "attention";
 }
 
-export function getMoneyFormatter(currencyCode: string) {
-  return new Intl.NumberFormat("en-US", {
+export function getMoneyFormatter(
+  currencyCode: string,
+  locale: string = "en-US",
+) {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: currencyCode,
   });

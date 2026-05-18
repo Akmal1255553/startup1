@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import type { Locale } from "../i18n/types";
 import type { DashboardData, RiskOrder, RiskSettings } from "./return-risk";
 import { buildRiskOrders, summarizeOrders } from "./risk-engine.server";
 import {
@@ -319,6 +320,7 @@ export async function saveBulkReturnDecisions(
 export async function loadReturnRiskData(
   admin: ShopifyAdmin,
   shop: string,
+  locale: Locale = "en",
 ): Promise<DashboardData> {
   const settings = await getRiskSettings(shop);
 
@@ -372,7 +374,13 @@ export async function loadReturnRiskData(
       }),
     ]);
 
-    const orders = buildRiskOrders(rawOrders, settings, playbooks, decisions);
+    const orders = buildRiskOrders(
+      rawOrders,
+      settings,
+      playbooks,
+      decisions,
+      locale,
+    );
     const detectedOrders = orders.length ? orders.length : await loadOrderCount(admin);
 
     return buildDashboardData(orders, settings, null, {

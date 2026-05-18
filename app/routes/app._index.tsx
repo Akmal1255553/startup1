@@ -19,6 +19,7 @@ import { TitleBar } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
 import { useI18n } from "../i18n/i18n-context";
+import { resolveLocale } from "../i18n/resolver.server";
 import { decisionLabelFromDashboard } from "../i18n/messages/dashboard";
 import {
   loadReturnRiskData,
@@ -36,14 +37,18 @@ import styles from "../styles/dashboard-index.module.css";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
 
   const [data, onboarding, aiInsights] = await Promise.all([
-    loadReturnRiskData(admin, session.shop),
+    loadReturnRiskData(admin, session.shop, locale),
     getOnboardingProgress(session.shop),
-    loadAiInsights(session.shop),
+    loadAiInsights(session.shop, locale),
   ]);
 
-  return { ...data, onboarding, aiInsights };
+  return { ...data, onboarding, aiInsights, locale };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -68,8 +73,8 @@ export default function Dashboard() {
   const revalidator = useRevalidator();
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
-  const moneyFormatter = getMoneyFormatter(summary.currencyCode);
   const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const moneyFormatter = getMoneyFormatter(summary.currencyCode, dateLocale);
   const playbooks = [d.playbook1, d.playbook2, d.playbook3];
 
   useEffect(() => {

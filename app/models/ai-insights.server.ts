@@ -1,4 +1,9 @@
 import prisma from "../db.server";
+import {
+  formatInsightDate,
+  getInsightCopy,
+} from "../i18n/messages/ai-insights-copy";
+import type { Locale } from "../i18n/types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -13,19 +18,14 @@ export type Insight = {
 };
 
 /**
- * Generate "AI insights" from local moderation data — pure statistics,
- * zero external API calls. The insight engine looks at:
- *
- * - Week-over-week trends in approval / hold rates
- * - Daily volume anomalies (≥ 2× the 30d average)
- * - Reset-rate signals (humans overriding the system)
- * - Concentration of holds on a single decision pattern
- *
- * Architecture leaves room to plug in an LLM-based summarizer later
- * (e.g. Cloudflare Workers AI, Groq, OpenAI) by replacing the message
- * field of each insight with a generated narrative.
+ * Generate insights from local moderation data — pure statistics,
+ * zero external API calls.
  */
-export async function loadAiInsights(shop: string): Promise<Insight[]> {
+export async function loadAiInsights(
+  shop: string,
+  locale: Locale = "en",
+): Promise<Insight[]> {
+  const copy = getInsightCopy(locale);
   const now = new Date();
   const startOfToday = startOfDay(now);
   const start30Days = new Date(startOfToday.getTime() - 29 * DAY_MS);
@@ -41,10 +41,9 @@ export async function loadAiInsights(shop: string): Promise<Insight[]> {
       {
         id: "no-data",
         severity: "info",
-        title: "Not enough data yet",
-        message:
-          "Once your team starts moderating returns, insights about trends, anomalies, and recommended playbooks will appear here.",
-        cta: { label: "Open queue", url: "/app/returns" },
+        title: copy.noDataTitle,
+        message: copy.noDataMessage,
+        cta: { label: copy.noDataCta, url: "/app/returns" },
       },
     ];
   }
@@ -59,11 +58,13 @@ export async function loadAiInsights(shop: string): Promise<Insight[]> {
       event.createdAt >= startOfLastWeek && event.createdAt < startOfThisWeek,
   );
 
-  insights.push(...buildVolumeTrend(thisWeek.length, lastWeek.length));
-  insights.push(...buildApprovalShift(thisWeek, lastWeek));
-  insights.push(...buildResetSignal(thisWeek));
-  insights.push(...buildVolumeAnomaly(events, startOfToday));
-  insights.push(...buildHoldConcentration(thisWeek));
+  insights.push(...buildVolumeTrend(thisWeek.length, lastWeek.length, copy));
+  insights.push(...buildApprovalShift(thisWeek, lastWeek, copy));
+  insights.push(...buildResetSignal(thisWeek, copy));
+  insights.push(
+    ...buildVolumeAnomaly(events, startOfToday, locale, copy),
+  );
+  insights.push(...buildHoldConcentration(thisWeek, copy));
 
   return insights.length
     ? insights
@@ -71,22 +72,25 @@ export async function loadAiInsights(shop: string): Promise<Insight[]> {
         {
           id: "all-clear",
           severity: "success",
-          title: "Operations look healthy",
-          message:
-            "No anomalies, trend reversals, or unusual patterns detected in the last 30 days.",
+          title: copy.allClearTitle,
+          message: copy.allClearMessage,
         },
       ];
 }
 
-function buildVolumeTrend(thisWeek: number, lastWeek: number): Insight[] {
+function buildVolumeTrend(
+  thisWeek: number,
+  lastWeek: number,
+  copy: ReturnType<typeof getInsightCopy>,
+): Insight[] {
   if (lastWeek === 0 && thisWeek === 0) return [];
   if (lastWeek === 0) {
     return [
       {
         id: "trend-first-week",
         severity: "info",
-        title: "First moderation week",
-        message: `Your team handled ${thisWeek} return decisions this week. Insights will sharpen with more history.`,
+        title: copy.firstWeekTitle,
+        message: copy.firstWeekMessage(thisWeek),
       },
     ];
   }
@@ -100,13 +104,13 @@ function buildVolumeTrend(thisWeek: number, lastWeek: number): Insight[] {
       severity: change > 0 ? "attention" : "success",
       title:
         change > 0
-          ? `Return moderation volume up ${change}% week-over-week`
-          : `Return moderation volume down ${Math.abs(change)}% week-over-week`,
+          ? copy.trendUpTitle(change)
+          : copy.trendDownTitle(Math.abs(change)),
       message:
         change > 0
-          ? `Your team handled ${thisWeek} return decisions in the last 7 days, vs ${lastWeek} the week before. Consider adding playbooks to absorb the load.`
-          : `Volume has dropped from ${lastWeek} to ${thisWeek} decisions over the last 7 days — either fewer disputes or your playbooks are auto-clearing more cases.`,
-      cta: { label: "Open playbooks", url: "/app/playbooks" },
+          ? copy.trendUpMessage(thisWeek, lastWeek)
+          : copy.trendDownMessage(lastWeek, thisWeek),
+      cta: { label: copy.trendCta, url: "/app/playbooks" },
     },
   ];
 }
@@ -114,6 +118,7 @@ function buildVolumeTrend(thisWeek: number, lastWeek: number): Insight[] {
 function buildApprovalShift(
   thisWeek: { decision: string }[],
   lastWeek: { decision: string }[],
+  copy: ReturnType<typeof getInsightCopy>,
 ): Insight[] {
   const thisRate = approvalRate(thisWeek);
   const lastRate = approvalRate(lastWeek);
@@ -128,18 +133,21 @@ function buildApprovalShift(
       severity: delta < 0 ? "critical" : "success",
       title:
         delta < 0
-          ? `Approval rate dropped ${Math.abs(delta)} points`
-          : `Approval rate climbed ${delta} points`,
+          ? copy.approvalDropTitle(Math.abs(delta))
+          : copy.approvalRiseTitle(delta),
       message:
         delta < 0
-          ? `${thisRate}% of moderated returns were approved this week (was ${lastRate}% the week before). More cases are being held or sent for review — review your hold threshold.`
-          : `${thisRate}% of moderated returns were approved this week (was ${lastRate}% the week before). Either trust signals improved, or your playbooks are resolving more cases automatically.`,
-      cta: { label: "Tune thresholds", url: "/app/settings" },
+          ? copy.approvalDropMessage(thisRate, lastRate)
+          : copy.approvalRiseMessage(thisRate, lastRate),
+      cta: { label: copy.approvalCta, url: "/app/settings" },
     },
   ];
 }
 
-function buildResetSignal(events: { decision: string }[]): Insight[] {
+function buildResetSignal(
+  events: { decision: string }[],
+  copy: ReturnType<typeof getInsightCopy>,
+): Insight[] {
   const resets = events.filter((event) => event.decision === "reset").length;
   if (resets < 3) return [];
 
@@ -150,9 +158,9 @@ function buildResetSignal(events: { decision: string }[]): Insight[] {
     {
       id: "reset-signal",
       severity: "attention",
-      title: "Frequent resets detected",
-      message: `${resets} decisions were reset this week (${ratio}% of all actions). This may indicate your thresholds or playbooks need tuning to match real merchant intent.`,
-      cta: { label: "Review settings", url: "/app/settings" },
+      title: copy.resetTitle,
+      message: copy.resetMessage(resets, ratio),
+      cta: { label: copy.resetCta, url: "/app/settings" },
     },
   ];
 }
@@ -160,6 +168,8 @@ function buildResetSignal(events: { decision: string }[]): Insight[] {
 function buildVolumeAnomaly(
   events: { createdAt: Date }[],
   startOfToday: Date,
+  locale: Locale,
+  copy: ReturnType<typeof getInsightCopy>,
 ): Insight[] {
   if (events.length < 14) return [];
 
@@ -177,7 +187,6 @@ function buildVolumeAnomaly(
   const avg = counts.reduce((sum, n) => sum + n, 0) / counts.length;
   if (avg < 1) return [];
 
-  // Find the most recent day that exceeds the threshold
   for (let i = counts.length - 1; i >= counts.length - 7; i--) {
     if (i < 0) break;
     const value = counts[i];
@@ -189,9 +198,14 @@ function buildVolumeAnomaly(
         {
           id: "anomaly-day",
           severity: "critical",
-          title: "Unusual moderation spike",
-          message: `${value} return decisions were processed on ${formatDateLong(date)} — ${Math.round((value / avg) * 10) / 10}× your 30-day average of ${Math.round(avg)}/day. Check whether a single SKU or customer segment is driving this.`,
-          cta: { label: "Open analytics", url: "/app/analytics" },
+          title: copy.anomalyTitle,
+          message: copy.anomalyMessage(
+            value,
+            formatInsightDate(date, locale),
+            Math.round((value / avg) * 10) / 10,
+            Math.round(avg),
+          ),
+          cta: { label: copy.anomalyCta, url: "/app/analytics" },
         },
       ];
     }
@@ -200,7 +214,10 @@ function buildVolumeAnomaly(
   return [];
 }
 
-function buildHoldConcentration(events: { decision: string }[]): Insight[] {
+function buildHoldConcentration(
+  events: { decision: string }[],
+  copy: ReturnType<typeof getInsightCopy>,
+): Insight[] {
   if (events.length < 10) return [];
   const holds = events.filter((event) => event.decision === "hold").length;
   if (holds === 0) return [];
@@ -211,9 +228,9 @@ function buildHoldConcentration(events: { decision: string }[]): Insight[] {
     {
       id: "hold-concentration",
       severity: "attention",
-      title: "High hold concentration",
-      message: `${ratio}% of all actions this week were holds. If this is consistent with policy, consider creating a playbook to automate the pattern and free up support time.`,
-      cta: { label: "Create playbook", url: "/app/playbooks" },
+      title: copy.holdTitle,
+      message: copy.holdMessage(ratio),
+      cta: { label: copy.holdCta, url: "/app/playbooks" },
     },
   ];
 }
@@ -243,11 +260,4 @@ function formatDate(input: Date): string {
   const month = String(input.getMonth() + 1).padStart(2, "0");
   const day = String(input.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function formatDateLong(input: Date): string {
-  return input.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
 }
