@@ -29,7 +29,9 @@ const shopify = shopifyApp({
     unstable_newEmbeddedAuthStrategy: true,
     expiringOfflineAccessTokens: true,
   },
-  ...(process.env.SHOP_CUSTOM_DOMAIN
+  // Only for real custom domains (e.g. brand.com), never a full *.myshopify.com URL.
+  ...(process.env.SHOP_CUSTOM_DOMAIN &&
+  !process.env.SHOP_CUSTOM_DOMAIN.includes("myshopify.com")
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
 });
