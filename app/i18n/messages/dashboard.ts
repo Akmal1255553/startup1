@@ -1,4 +1,6 @@
 import type { Locale } from "../types";
+import { pickByLocale } from "../pick-locale";
+import { DASHBOARD_MESSAGES } from "../translations/dashboard";
 
 export type DashboardMessages = {
   pageTitle: string;
@@ -223,8 +225,7 @@ const ru: DashboardMessages = {
 };
 
 export function getDashboardMessages(locale: Locale): DashboardMessages {
-  if (locale === "ru") return ru;
-  return en;
+  return pickByLocale(DASHBOARD_MESSAGES, locale);
 }
 
 export function decisionLabelFromDashboard(

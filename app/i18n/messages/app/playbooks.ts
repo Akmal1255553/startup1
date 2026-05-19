@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { PLAYBOOKS_COPY } from "../../translations/playbooks";
 
 export type PlaybooksCopy = {
   title: string;
@@ -103,5 +105,5 @@ const ru: PlaybooksCopy = {
 };
 
 export function getPlaybooksCopy(locale: Locale): PlaybooksCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(PLAYBOOKS_COPY, locale);
 }

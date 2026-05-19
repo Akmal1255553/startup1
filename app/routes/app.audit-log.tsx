@@ -26,6 +26,7 @@ import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { useEffect, useState } from "react";
 
 import { authenticate } from "../shopify.server";
+import { getDateLocale } from "../i18n/date-locale";
 import { useI18n } from "../i18n/i18n-context";
 import { describePlanContext } from "../i18n/messages/app/common";
 import { getAuditCopy } from "../i18n/messages/app/audit";
@@ -91,7 +92,7 @@ export default function AuditLogPage() {
     pages: { audit: a, common: c },
     locale,
   } = useI18n();
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const dateLocale = getDateLocale(locale);
   const {
     decision,
     events,

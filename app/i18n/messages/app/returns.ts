@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { RETURNS_COPY } from "../../translations/returns";
 
 export type ReturnsCopy = {
   title: string;
@@ -331,5 +333,5 @@ const ru: ReturnsCopy = {
 };
 
 export function getReturnsCopy(locale: Locale): ReturnsCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(RETURNS_COPY, locale);
 }

@@ -1,13 +1,8 @@
-import {
-  LOCALE_LABELS,
-  toMarketingLocale,
-  type Locale,
-  type MarketingLocale,
-} from "../i18n/types";
+import { LOCALE_LABELS, SUPPORTED_LOCALES, type Locale } from "../i18n/types";
 
 import styles from "./language-switcher-marketing.module.css";
 
-function setLocaleHref(lng: MarketingLocale, redirectPath: string) {
+function setLocaleHref(lng: Locale, redirectPath: string) {
   const redirect = encodeURIComponent(redirectPath);
   return `/set-locale?lng=${lng}&redirect=${redirect}`;
 }
@@ -23,31 +18,31 @@ export function LanguageSwitcherMarketing({
   redirectPath?: string;
   variant?: "header" | "footer";
 }) {
-  const current = toMarketingLocale(locale);
-  const marketingLocales: MarketingLocale[] = ["en", "ru"];
-
   return (
-    <div
-      className={styles.root}
-      role="group"
-      aria-label={langLabel}
-      data-variant={variant}
-    >
-      <span className={styles.label}>{langLabel}</span>
-      <div className={styles.seg}>
-        {marketingLocales.map((id) => (
-          <a
-            key={id}
-            href={setLocaleHref(id, redirectPath)}
-            className={
-              current === id ? `${styles.segLink} ${styles.segActive}` : styles.segLink
-            }
-            aria-current={current === id ? "true" : undefined}
-          >
-            {LOCALE_LABELS[id]}
-          </a>
+    <details className={styles.root} data-variant={variant}>
+      <summary className={styles.summary} aria-label={langLabel}>
+        <span className={styles.label}>{langLabel}</span>
+        <span className={styles.current}>{LOCALE_LABELS[locale]}</span>
+        <span className={styles.chevron} aria-hidden>
+          ▾
+        </span>
+      </summary>
+      <ul className={styles.menu} role="listbox" aria-label={langLabel}>
+        {SUPPORTED_LOCALES.map((id) => (
+          <li key={id}>
+            <a
+              className={
+                locale === id ? `${styles.menuLink} ${styles.menuActive}` : styles.menuLink
+              }
+              href={setLocaleHref(id, redirectPath)}
+              hrefLang={id}
+              aria-current={locale === id ? "true" : undefined}
+            >
+              {LOCALE_LABELS[id]}
+            </a>
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </details>
   );
 }

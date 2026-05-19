@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { AUDIT_COPY } from "../../translations/audit";
 
 export type AuditCopy = {
   title: string;
@@ -93,5 +95,5 @@ const ru: AuditCopy = {
 };
 
 export function getAuditCopy(locale: Locale): AuditCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(AUDIT_COPY, locale);
 }

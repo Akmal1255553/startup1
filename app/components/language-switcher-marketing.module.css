@@ -77,3 +77,71 @@
   background: rgb(10 92 82 / 0.1);
   pointer-events: none;
 }
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  list-style: none;
+  cursor: pointer;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line-strong, rgb(11 18 16 / 0.18));
+  background: var(--surface, #fff);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft, #3d4f48);
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.current {
+  color: var(--teal-deep, #064038);
+}
+
+.chevron {
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+
+.menu {
+  position: absolute;
+  z-index: 40;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem;
+  min-width: 11rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line-strong, rgb(11 18 16 / 0.18));
+  background: var(--surface, #fff);
+  box-shadow: 0 8px 24px rgb(11 18 16 / 0.12);
+}
+
+.root {
+  position: relative;
+}
+
+.menuLink {
+  display: block;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink-soft, #3d4f48);
+  text-decoration: none;
+}
+
+.menuLink:hover {
+  background: rgb(10 92 82 / 0.06);
+  color: var(--ink, #0b1210);
+}
+
+.menuActive {
+  background: rgb(10 92 82 / 0.1);
+  color: var(--teal-deep, #064038);
+  font-weight: 600;
+}

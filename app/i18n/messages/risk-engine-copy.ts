@@ -1,4 +1,6 @@
 import type { Locale } from "../types";
+import { pickByLocale } from "../pick-locale";
+import { RISK_COPY } from "../translations/risk-engine";
 
 export type RiskCopy = {
   guestCheckout: string;
@@ -274,7 +276,7 @@ function capitalize(text: string): string {
 }
 
 export function getRiskCopy(locale: Locale): RiskCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(RISK_COPY, locale);
 }
 
 export function formatStatusDisplay(

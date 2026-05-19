@@ -7,6 +7,11 @@ import {
   type PlanId,
 } from "../../../billing/plans";
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import {
+  BILLING_BASE,
+  localizedPlansFor,
+} from "../../translations/billing";
 
 export type BillingCopy = {
   title: string;
@@ -162,15 +167,14 @@ const ru: Omit<BillingCopy, "getPlans"> = {
 };
 
 export function getBillingCopy(locale: Locale): BillingCopy {
-  const base = locale === "ru" ? ru : en;
   return {
-    ...base,
-    getPlans: () => localizedPlans(locale),
+    ...pickByLocale(BILLING_BASE, locale),
+    getPlans: () => localizedPlansFor(locale),
   };
 }
 
 export function localizePlanId(planId: PlanId | null, locale: Locale): string {
-  const plans = localizedPlans(locale);
+  const plans = localizedPlansFor(locale);
   const found = plans.find((p) => p.id === planId);
   return found?.name ?? planId ?? "Free";
 }

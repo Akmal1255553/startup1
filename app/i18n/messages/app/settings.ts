@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { SETTINGS_COPY } from "../../translations/settings";
 
 export type SettingsCopy = {
   title: string;
@@ -81,5 +83,5 @@ const ru: SettingsCopy = {
 };
 
 export function getSettingsCopy(locale: Locale): SettingsCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(SETTINGS_COPY, locale);
 }

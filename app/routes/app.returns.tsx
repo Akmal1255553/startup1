@@ -53,6 +53,7 @@ import {
 import { loadCapabilities } from "../models/plan-gating.server";
 import type { PlanCapabilities } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
+import { getDateLocale } from "../i18n/date-locale";
 import { useI18n } from "../i18n/i18n-context";
 import { describePlanContext } from "../i18n/messages/app/common";
 import { getReturnsCopy } from "../i18n/messages/app/returns";
@@ -137,7 +138,7 @@ export default function ReturnsQueuePage() {
     pages: { returns: r, common: c },
     locale,
   } = useI18n();
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const dateLocale = getDateLocale(locale);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -835,7 +836,7 @@ function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
     pages: { returns: r },
     locale,
   } = useI18n();
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const dateLocale = getDateLocale(locale);
   const isDeleting = fetcher.state !== "idle";
 
   useEffect(() => {
@@ -920,7 +921,7 @@ function ReturnDetailModal({
     pages: { returns: r },
     locale,
   } = useI18n();
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const dateLocale = getDateLocale(locale);
 
   if (!row) {
     return (

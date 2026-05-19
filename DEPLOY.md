@@ -1,5 +1,7 @@
 # Deploy ReturnGuard AI to Render
 
+For **Shopify App Store** submission (public listing, review, billing on live stores), see [SHOPIFY_APP_STORE.md](./SHOPIFY_APP_STORE.md).
+
 ## 1. Push latest code
 
 ```bash

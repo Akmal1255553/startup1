@@ -30,9 +30,9 @@ export function isLocale(value: string): value is Locale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value);
 }
 
-/** Marketing / legal site copy is only localized for English and Russian. */
-export type MarketingLocale = "en" | "ru";
+/** Public marketing / legal pages use the same locales as the embedded app. */
+export type MarketingLocale = Locale;
 
 export function toMarketingLocale(locale: Locale): MarketingLocale {
-  return locale === "ru" ? "ru" : "en";
+  return locale;
 }

@@ -1,4 +1,7 @@
 import type { Locale } from "../types";
+import { getDateLocale } from "../date-locale";
+import { pickByLocale } from "../pick-locale";
+import { INSIGHT_COPY } from "../translations/ai-insights";
 
 export type InsightCopy = {
   noDataTitle: string;
@@ -114,11 +117,11 @@ const ru: InsightCopy = {
 };
 
 export function getInsightCopy(locale: Locale): InsightCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(INSIGHT_COPY, locale);
 }
 
 export function formatInsightDate(input: Date, locale: Locale): string {
-  return input.toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", {
+  return input.toLocaleDateString(getDateLocale(locale), {
     month: "short",
     day: "numeric",
   });

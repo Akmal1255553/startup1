@@ -18,6 +18,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
+import { getDateLocale } from "../i18n/date-locale";
 import { useI18n } from "../i18n/i18n-context";
 import { resolveLocale } from "../i18n/resolver.server";
 import { decisionLabelFromDashboard } from "../i18n/messages/dashboard";
@@ -73,7 +74,7 @@ export default function Dashboard() {
   const revalidator = useRevalidator();
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
-  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+  const dateLocale = getDateLocale(locale);
   const moneyFormatter = getMoneyFormatter(summary.currencyCode, dateLocale);
   const playbooks = [d.playbook1, d.playbook2, d.playbook3];
 

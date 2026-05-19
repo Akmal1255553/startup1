@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { ONBOARDING_COPY } from "../../translations/onboarding";
 
 export type OnboardingCopy = {
   title: string;
@@ -157,5 +159,5 @@ const ru: OnboardingCopy = {
 };
 
 export function getOnboardingCopy(locale: Locale): OnboardingCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(ONBOARDING_COPY, locale);
 }

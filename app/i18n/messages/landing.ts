@@ -1,4 +1,6 @@
 import type { Locale } from "../types";
+import { pickByLocale } from "../pick-locale";
+import { LANDING_COPY } from "../translations/landing";
 
 export type LandingFeature = { title: string; description: string };
 export type LandingStep = { n: string; title: string; text: string };
@@ -280,6 +282,5 @@ const ruLanding: LandingCopy = {
 };
 
 export function getLandingCopy(locale: Locale): LandingCopy {
-  if (locale === "ru") return ruLanding;
-  return enLanding;
+  return pickByLocale(LANDING_COPY, locale);
 }

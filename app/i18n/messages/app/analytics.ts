@@ -1,4 +1,6 @@
 import type { Locale } from "../../types";
+import { pickByLocale } from "../../pick-locale";
+import { ANALYTICS_COPY } from "../../translations/analytics";
 
 export type AnalyticsCopy = {
   title: string;
@@ -112,5 +114,5 @@ const ru: AnalyticsCopy = {
 };
 
 export function getAnalyticsCopy(locale: Locale): AnalyticsCopy {
-  return locale === "ru" ? ru : en;
+  return pickByLocale(ANALYTICS_COPY, locale);
 }
