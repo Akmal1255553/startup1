@@ -17,6 +17,9 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
+import { useI18n } from "../i18n/i18n-context";
+import { describePlanContext } from "../i18n/messages/app/common";
+import { resolveLocale } from "../i18n/resolver.server";
 import {
   loadAnalytics,
   type AnalyticsSummary,
@@ -29,44 +32,53 @@ import {
 } from "../models/ai-insights.server";
 import { Sparkline } from "../components/sparkline";
 import { loadCapabilities } from "../models/plan-gating.server";
-import { describePlanContext } from "../billing/capabilities";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
   const capabilities = await loadCapabilities(billing);
   const [analytics, insights] = await Promise.all([
     loadAnalytics(session.shop),
-    loadAiInsights(session.shop),
+    loadAiInsights(session.shop, locale),
   ]);
   return { analytics, insights, capabilities };
 };
 
 export default function AnalyticsPage() {
   const { analytics, insights, capabilities } = useLoaderData<typeof loader>();
+  const {
+    pages: { analytics: a, common: c },
+  } = useI18n();
   const canSee30Days = capabilities.analyticsPeriodDays >= 30;
   const breakdownPeriod = canSee30Days
     ? analytics.last30Days
     : analytics.last7Days;
+  const rangeLabel = canSee30Days ? a.rangeShort30 : a.rangeShort7;
 
   return (
     <Page
-      title="Analytics"
-      subtitle="Moderation activity, approval rate, and trends"
-      backAction={{ content: "Dashboard", url: "/app" }}
+      title={a.title}
+      subtitle={a.subtitle}
+      backAction={{ content: c.backDashboard, url: "/app" }}
     >
-      <TitleBar title="Analytics" />
+      <TitleBar title={a.title} />
       <BlockStack gap="500">
         {!canSee30Days ? (
           <Banner
-            title="30-day and 90-day analytics are gated"
+            title={a.gatedTitle}
             tone="info"
-            action={{ content: "Open billing", url: "/app/billing" }}
+            action={{ content: c.openBilling, url: "/app/billing" }}
           >
             <p>
-              {describePlanContext(capabilities)}{" "}
-              Charts are limited to the last {capabilities.analyticsPeriodDays}{" "}
-              days. Upgrade to Growth for 30-day history, or Scale for 90-day
-              history.
+              {describePlanContext(
+                c,
+                capabilities.planLabel,
+                capabilities.hasActivePlan,
+              )}{" "}
+              {a.gatedBody(capabilities.analyticsPeriodDays)}
             </p>
           </Banner>
         ) : null}
@@ -74,24 +86,28 @@ export default function AnalyticsPage() {
         <TodaySection
           analytics={analytics}
           canSee30Days={canSee30Days}
+          copy={a}
+          liveLabel={c.live}
         />
 
-        <AiInsightsCard insights={insights} />
+        <AiInsightsCard insights={insights} copy={a} />
 
         <Layout>
           <Layout.Section>
             <PeriodCard
-              title="Last 7 days"
+              title={a.period7}
               tone="success"
               period={analytics.last7Days}
+              copy={a}
             />
           </Layout.Section>
           {canSee30Days ? (
             <Layout.Section>
               <PeriodCard
-                title="Last 30 days"
+                title={a.period30}
                 tone="info"
                 period={analytics.last30Days}
+                copy={a}
               />
             </Layout.Section>
           ) : null}
@@ -99,14 +115,21 @@ export default function AnalyticsPage() {
 
         <DecisionBreakdownCard
           period={breakdownPeriod}
-          rangeLabel={canSee30Days ? "30 days" : "7 days"}
+          rangeLabel={rangeLabel}
+          copy={a}
         />
       </BlockStack>
     </Page>
   );
 }
 
-function AiInsightsCard({ insights }: { insights: Insight[] }) {
+function AiInsightsCard({
+  insights,
+  copy,
+}: {
+  insights: Insight[];
+  copy: ReturnType<typeof useI18n>["pages"]["analytics"];
+}) {
   return (
     <Card>
       <BlockStack gap="300">
@@ -114,15 +137,14 @@ function AiInsightsCard({ insights }: { insights: Insight[] }) {
           <BlockStack gap="100">
             <InlineStack gap="200" blockAlign="center">
               <Badge tone="info" toneAndProgressLabelOverride=" ">
-                AI Insights
+                {copy.insightsBadge}
               </Badge>
               <Text as="h2" variant="headingMd">
-                What we noticed for you
+                {copy.insightsTitle}
               </Text>
             </InlineStack>
             <Text as="p" variant="bodySm" tone="subdued">
-              Generated locally from your moderation history — no data leaves
-              your store.
+              {copy.insightsSubtitle}
             </Text>
           </BlockStack>
         </InlineStack>
@@ -199,9 +221,13 @@ function insightBackground(
 function TodaySection({
   analytics,
   canSee30Days,
+  copy,
+  liveLabel,
 }: {
   analytics: AnalyticsSummary;
   canSee30Days: boolean;
+  copy: ReturnType<typeof useI18n>["pages"]["analytics"];
+  liveLabel: string;
 }) {
   const { today, totalEvents } = analytics;
   const columns = canSee30Days ? 4 : 3;
@@ -209,34 +235,36 @@ function TodaySection({
   return (
     <InlineGrid columns={{ xs: 1, md: columns }} gap="400">
       <SummaryTile
-        label="Today's actions"
+        label={copy.today}
         value={String(today.total)}
-        hint={`${today.approved} approved · ${today.review} review · ${today.hold} hold`}
+        hint={copy.todayHint(today.approved, today.review, today.hold)}
         tone="info"
+        liveLabel={liveLabel}
       />
       <SummaryTile
-        label="Last 7 days"
+        label={copy.last7}
         value={String(analytics.last7Days.totals.total)}
-        hint={`${analytics.last7Days.approvalRate}% approval rate`}
+        hint={copy.last7Hint(analytics.last7Days.approvalRate)}
         tone="success"
+        liveLabel={liveLabel}
       />
       {canSee30Days ? (
         <SummaryTile
-          label="Last 30 days"
+          label={copy.last30}
           value={String(analytics.last30Days.totals.total)}
-          hint={`${analytics.last30Days.flaggedRate}% flagged for review or hold`}
+          hint={copy.last30Hint(analytics.last30Days.flaggedRate)}
           tone="attention"
+          liveLabel={liveLabel}
         />
       ) : null}
       <SummaryTile
-        label="Audit events in view"
-        value={String(canSee30Days ? totalEvents : analytics.last7Days.totals.total)}
-        hint={
-          canSee30Days
-            ? "Across the last 30 days of audit log"
-            : "Across the last 7 days (upgrade for 30-day window)"
-        }
+        label={copy.audit}
+        value={String(
+          canSee30Days ? totalEvents : analytics.last7Days.totals.total,
+        )}
+        hint={canSee30Days ? copy.auditHint30 : copy.auditHint7}
         tone="info"
+        liveLabel={liveLabel}
       />
     </InlineGrid>
   );
@@ -247,11 +275,13 @@ function SummaryTile({
   value,
   hint,
   tone,
+  liveLabel,
 }: {
   label: string;
   value: string;
   hint: string;
   tone: "success" | "attention" | "critical" | "info";
+  liveLabel: string;
 }) {
   return (
     <Card>
@@ -261,7 +291,7 @@ function SummaryTile({
             {label}
           </Text>
           <Badge tone={tone} toneAndProgressLabelOverride=" ">
-            Live
+            {liveLabel}
           </Badge>
         </InlineStack>
         <Text as="p" variant="heading2xl">
@@ -279,10 +309,12 @@ function PeriodCard({
   title,
   tone,
   period,
+  copy,
 }: {
   title: string;
   tone: "success" | "info";
   period: PeriodAnalytics;
+  copy: ReturnType<typeof useI18n>["pages"]["analytics"];
 }) {
   const totalSeries = period.daily.map((day) => day.total);
   const approvedSeries = period.daily.map((day) => day.approved);
@@ -296,39 +328,43 @@ function PeriodCard({
             {title}
           </Text>
           <Badge tone={tone} toneAndProgressLabelOverride=" ">
-            {`${period.totals.total} actions`}
+            {copy.actionsBadge(period.totals.total)}
           </Badge>
         </InlineStack>
 
         <Box>
           <Text as="p" variant="bodySm" tone="subdued">
-            Total moderation actions per day
+            {copy.chartLabel}
           </Text>
           <Box paddingBlockStart="100">
             <Sparkline
               values={totalSeries}
               tone={tone}
-              ariaLabel={`${title} total actions per day`}
+              ariaLabel={`${title} ${copy.chartLabel}`}
             />
           </Box>
         </Box>
 
         <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
           <MiniSeries
-            label="Approved"
+            label={copy.approved}
             tone="success"
             values={approvedSeries}
             total={period.totals.approved}
           />
           <MiniSeries
-            label="Flagged (review + hold)"
+            label={copy.flagged}
             tone="critical"
             values={flaggedSeries}
             total={period.totals.review + period.totals.hold}
           />
         </InlineGrid>
 
-        <ApprovalRateRow approvalRate={period.approvalRate} flaggedRate={period.flaggedRate} />
+        <ApprovalRateRow
+          approvalRate={period.approvalRate}
+          flaggedRate={period.flaggedRate}
+          copy={copy}
+        />
       </BlockStack>
     </Card>
   );
@@ -355,7 +391,12 @@ function MiniSeries({
           {total}
         </Text>
       </InlineStack>
-      <Sparkline values={values} tone={tone} height={28} ariaLabel={`${label} per day`} />
+      <Sparkline
+        values={values}
+        tone={tone}
+        height={28}
+        ariaLabel={label}
+      />
     </BlockStack>
   );
 }
@@ -363,15 +404,17 @@ function MiniSeries({
 function ApprovalRateRow({
   approvalRate,
   flaggedRate,
+  copy,
 }: {
   approvalRate: number;
   flaggedRate: number;
+  copy: ReturnType<typeof useI18n>["pages"]["analytics"];
 }) {
   return (
     <BlockStack gap="200">
       <InlineStack align="space-between" blockAlign="center">
         <Text as="span" variant="bodySm">
-          Approval rate
+          {copy.approvalRate}
         </Text>
         <Text as="span" variant="bodyMd">
           {approvalRate}%
@@ -381,7 +424,7 @@ function ApprovalRateRow({
 
       <InlineStack align="space-between" blockAlign="center">
         <Text as="span" variant="bodySm">
-          Flagged rate
+          {copy.flaggedRate}
         </Text>
         <Text as="span" variant="bodyMd">
           {flaggedRate}%
@@ -395,9 +438,11 @@ function ApprovalRateRow({
 function DecisionBreakdownCard({
   period,
   rangeLabel,
+  copy,
 }: {
   period: PeriodAnalytics;
   rangeLabel: string;
+  copy: ReturnType<typeof useI18n>["pages"]["analytics"];
 }) {
   const totals = period.totals;
   const items: Array<{
@@ -405,17 +450,17 @@ function DecisionBreakdownCard({
     value: number;
     tone: "success" | "attention" | "critical" | "info";
   }> = [
-    { label: "Approved", value: totals.approved, tone: "success" },
-    { label: "Manual review", value: totals.review, tone: "attention" },
-    { label: "Hold", value: totals.hold, tone: "critical" },
-    { label: "Reset", value: totals.reset, tone: "info" },
+    { label: copy.breakdownApproved, value: totals.approved, tone: "success" },
+    { label: copy.breakdownReview, value: totals.review, tone: "attention" },
+    { label: copy.breakdownHold, value: totals.hold, tone: "critical" },
+    { label: copy.breakdownReset, value: totals.reset, tone: "info" },
   ];
 
   return (
     <Card>
       <BlockStack gap="300">
         <Text as="h2" variant="headingMd">
-          Decision breakdown · last {rangeLabel}
+          {copy.breakdownTitle(rangeLabel)}
         </Text>
         <InlineGrid columns={{ xs: 2, md: 4 }} gap="300">
           {items.map((item) => (
@@ -443,8 +488,7 @@ function DecisionBreakdownCard({
             borderRadius="200"
           >
             <Text as="p" variant="bodyMd" tone="subdued">
-              No moderation events in the last {rangeLabel}. Make a decision
-              in the Returns Queue to start populating analytics.
+              {copy.breakdownEmpty(rangeLabel)}
             </Text>
           </Box>
         ) : null}

@@ -13,7 +13,6 @@ import {
   Card,
   Divider,
   InlineStack,
-  Link,
   List,
   Page,
   ProgressBar,
@@ -22,6 +21,7 @@ import {
 import { TitleBar } from "@shopify/app-bridge-react";
 
 import { authenticate } from "../shopify.server";
+import { useI18n } from "../i18n/i18n-context";
 import {
   ONBOARDING_STEPS,
   type OnboardingProgress,
@@ -113,6 +113,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function OnboardingPage() {
   const { progress, grantedScopes, missingScopes, shop } =
     useLoaderData<typeof loader>();
+  const {
+    pages: { onboarding: o },
+  } = useI18n();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const isSubmitting = navigation.state !== "idle";
@@ -124,43 +127,34 @@ export default function OnboardingPage() {
 
   return (
     <Page
-      title="Get started with ReturnGuard AI"
-      subtitle="Four quick steps to start scoring returns automatically"
-      backAction={{ content: "Skip for now", url: "/app" }}
+      title={o.title}
+      subtitle={o.subtitle}
+      backAction={{ content: o.skip, url: "/app" }}
     >
-      <TitleBar title="Onboarding" />
+      <TitleBar title={o.title} />
       <BlockStack gap="500">
         {errorMessage ? (
           <Banner tone="critical">{errorMessage}</Banner>
         ) : null}
 
-        <OverallProgress progress={progress} shop={shop} />
+        <OverallProgress progress={progress} shop={shop} copy={o} />
 
         <StepCard
           step="welcome"
           progress={progress}
-          title="1. Welcome — what ReturnGuard does"
+          title={o.s1Title}
           done={progress.welcomeAcknowledged}
           pending={pendingIntent === "acknowledge_welcome" && isSubmitting}
+          copy={o}
         >
           <BlockStack gap="200">
             <Text as="p" variant="bodyMd">
-              ReturnGuard scores every Shopify return as it comes in,
-              recommends approve / review / hold based on order value,
-              fulfillment status, and customer history, and lets you act on
-              them from one queue.
+              {o.s1Body}
             </Text>
             <List type="bullet" gap="extraTight">
-              <List.Item>Dashboard with live risk metrics.</List.Item>
-              <List.Item>
-                Returns queue with bulk actions and CSV export.
-              </List.Item>
-              <List.Item>
-                Playbooks that auto-decide trusted or suspicious cases.
-              </List.Item>
-              <List.Item>
-                Audit log of every decision (yours and ours).
-              </List.Item>
+              {o.s1Bullets.map((item) => (
+                <List.Item key={item}>{item}</List.Item>
+              ))}
             </List>
             <Form method="post">
               <input type="hidden" name="intent" value="acknowledge_welcome" />
@@ -169,7 +163,7 @@ export default function OnboardingPage() {
                 variant="primary"
                 loading={pendingIntent === "acknowledge_welcome" && isSubmitting}
               >
-                Got it — continue
+                {o.s1Continue}
               </Button>
             </Form>
           </BlockStack>
@@ -178,39 +172,34 @@ export default function OnboardingPage() {
         <StepCard
           step="scopes"
           progress={progress}
-          title="2. Connection — Shopify access"
+          title={o.s2Title}
           done={progress.scopesVerified}
           pending={pendingIntent === "verify_scopes" && isSubmitting}
+          copy={o}
         >
           <BlockStack gap="200">
             <Text as="p" variant="bodyMd">
-              Make sure ReturnGuard can read the data it needs to score
-              returns. These scopes were granted when you installed the app:
+              {o.s2Body}
             </Text>
-            <ScopesList granted={grantedScopes} missing={missingScopes} />
+            <ScopesList
+              granted={grantedScopes}
+              missing={missingScopes}
+              grantedLabel={o.scopeGranted}
+              missingLabel={o.scopeMissing}
+            />
             {missingScopes.length ? (
               <Banner tone="warning">
                 <BlockStack gap="100">
                   <Text as="p" variant="bodyMd">
-                    Some required scopes are missing:{" "}
-                    <strong>{missingScopes.join(", ")}</strong>. Reinstall the
-                    app from your Shopify admin to grant them.
+                    {o.s2Missing}{" "}
+                    <strong>{missingScopes.join(", ")}</strong>
                   </Text>
                 </BlockStack>
               </Banner>
             ) : (
               <Banner tone="success">
                 <Text as="p" variant="bodyMd">
-                  All required scopes look good. If your store handles{" "}
-                  <strong>customer order data</strong>, also enable{" "}
-                  <Link
-                    url="https://shopify.dev/docs/apps/launch/protected-customer-data"
-                    target="_blank"
-                  >
-                    Protected Customer Data access
-                  </Link>{" "}
-                  for this app in the Partner Dashboard so we can show order
-                  detail in the queue.
+                  {o.s2Success}
                 </Text>
               </Banner>
             )}
@@ -222,9 +211,7 @@ export default function OnboardingPage() {
                 loading={pendingIntent === "verify_scopes" && isSubmitting}
                 disabled={missingScopes.length > 0}
               >
-                {missingScopes.length
-                  ? "Grant missing scopes first"
-                  : "Looks good — continue"}
+                {missingScopes.length ? o.s2SubmitMissing : o.s2SubmitOk}
               </Button>
             </Form>
           </BlockStack>
@@ -233,19 +220,18 @@ export default function OnboardingPage() {
         <StepCard
           step="playbook"
           progress={progress}
-          title="3. First playbook — automate the easy cases"
+          title={o.s3Title}
           done={progress.playbookSeeded}
           pending={
             (pendingIntent === "seed_playbook" ||
               pendingIntent === "skip_playbook") &&
             isSubmitting
           }
+          copy={o}
         >
           <BlockStack gap="200">
             <Text as="p" variant="bodyMd">
-              Playbooks auto-decide returns that match a pattern. We can seed
-              a sensible starter you can edit later: <em>auto-approve
-              customers with 5+ orders whose account is 90+ days old</em>.
+              {o.s3Body}
             </Text>
             <InlineStack gap="200">
               <Form method="post">
@@ -255,7 +241,7 @@ export default function OnboardingPage() {
                   variant="primary"
                   loading={pendingIntent === "seed_playbook" && isSubmitting}
                 >
-                  Create starter playbook
+                  {o.s3Create}
                 </Button>
               </Form>
               <Form method="post">
@@ -264,12 +250,12 @@ export default function OnboardingPage() {
                   submit
                   loading={pendingIntent === "skip_playbook" && isSubmitting}
                 >
-                  Skip — I'll add later
+                  {o.s3Skip}
                 </Button>
               </Form>
             </InlineStack>
             <Text as="p" variant="bodySm" tone="subdued">
-              You can manage playbooks any time from <Link url="/app/playbooks">/app/playbooks</Link>.
+              {o.s3Link}
             </Text>
           </BlockStack>
         </StepCard>
@@ -277,26 +263,25 @@ export default function OnboardingPage() {
         <StepCard
           step="settings"
           progress={progress}
-          title="4. Risk thresholds — your call"
+          title={o.s4Title}
           done={progress.settingsTuned}
           pending={pendingIntent === "acknowledge_settings" && isSubmitting}
+          copy={o}
         >
           <BlockStack gap="200">
             <Text as="p" variant="bodyMd">
-              The defaults work for most stores:{" "}
-              <strong>review at 60</strong>, <strong>hold at 80</strong>{" "}
-              (out of 100). Bump them up if you want fewer holds, or down if
-              fraud is a real concern. You can change these any time in{" "}
-              <Link url="/app/settings">Settings</Link>.
+              {o.s4Body}
             </Text>
             <Form method="post">
               <input type="hidden" name="intent" value="acknowledge_settings" />
               <Button
                 submit
                 variant="primary"
-                loading={pendingIntent === "acknowledge_settings" && isSubmitting}
+                loading={
+                  pendingIntent === "acknowledge_settings" && isSubmitting
+                }
               >
-                Use defaults — finish setup
+                {o.s4Finish}
               </Button>
             </Form>
           </BlockStack>
@@ -307,22 +292,20 @@ export default function OnboardingPage() {
             <BlockStack gap="200">
               <InlineStack gap="200" blockAlign="center">
                 <Badge tone="success" toneAndProgressLabelOverride=" ">
-                  All set
+                  {o.completeBadge}
                 </Badge>
                 <Text as="h2" variant="headingMd">
-                  You're ready to go
+                  {o.completeTitle}
                 </Text>
               </InlineStack>
               <Text as="p" variant="bodyMd">
-                Open the returns queue to see scoring in action. If you've
-                got no returns yet, create a test order in Shopify and
-                refresh — ReturnGuard will score it immediately.
+                {o.completeBody}
               </Text>
               <InlineStack gap="200">
                 <Button url="/app/returns" variant="primary">
-                  Open Returns queue
+                  {o.openQueue}
                 </Button>
-                <Button url="/app">Back to dashboard</Button>
+                <Button url="/app">{o.backDashboard}</Button>
               </InlineStack>
             </BlockStack>
           </Card>
@@ -335,26 +318,30 @@ export default function OnboardingPage() {
 function OverallProgress({
   progress,
   shop,
+  copy,
 }: {
   progress: OnboardingProgress;
   shop: string;
+  copy: ReturnType<typeof useI18n>["pages"]["onboarding"];
 }) {
+  const stepIndex = ONBOARDING_STEPS.indexOf(progress.nextStep || "welcome");
+
   return (
     <Card>
       <BlockStack gap="200">
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="050">
             <Text as="h2" variant="headingMd">
-              Setup progress
+              {copy.progressTitle}
             </Text>
             <Text as="p" variant="bodySm" tone="subdued">
               {progress.completed
-                ? `Onboarding complete for ${shop}.`
-                : `Step ${
-                    ONBOARDING_STEPS.indexOf(progress.nextStep || "welcome") + 1
-                  } of ${ONBOARDING_STEPS.length} — ${labelForStep(
-                    progress.nextStep,
-                  )}`}
+                ? copy.progressComplete(shop)
+                : copy.progressStep(
+                    stepIndex + 1,
+                    ONBOARDING_STEPS.length,
+                    labelForStep(progress.nextStep, copy),
+                  )}
             </Text>
           </BlockStack>
           <Badge tone={progress.completed ? "success" : "info"}>
@@ -370,14 +357,14 @@ function OverallProgress({
           <Form method="post">
             <input type="hidden" name="intent" value="dismiss" />
             <Button submit variant="tertiary">
-              Hide onboarding
+              {copy.hide}
             </Button>
           </Form>
           {process.env.NODE_ENV !== "production" ? (
             <Form method="post">
               <input type="hidden" name="intent" value="reset" />
               <Button submit variant="tertiary" tone="critical">
-                Reset (dev only)
+                {copy.resetDev}
               </Button>
             </Form>
           ) : null}
@@ -394,6 +381,7 @@ function StepCard({
   done,
   pending,
   children,
+  copy,
 }: {
   step: OnboardingStep;
   progress: OnboardingProgress;
@@ -401,9 +389,8 @@ function StepCard({
   done: boolean;
   pending: boolean;
   children: React.ReactNode;
+  copy: ReturnType<typeof useI18n>["pages"]["onboarding"];
 }) {
-  // Steps that come after the current next-step are rendered greyed-out
-  // until earlier steps are done. Keeps the merchant focused on one thing.
   const indexOf = ONBOARDING_STEPS.indexOf(step);
   const nextIndex = progress.nextStep
     ? ONBOARDING_STEPS.indexOf(progress.nextStep)
@@ -420,19 +407,19 @@ function StepCard({
             </Text>
             {done ? (
               <Badge tone="success" toneAndProgressLabelOverride=" ">
-                Done
+                {copy.badgeDone}
               </Badge>
             ) : pending ? (
               <Badge tone="info" toneAndProgressLabelOverride=" ">
-                Saving…
+                {copy.badgeSaving}
               </Badge>
             ) : locked ? (
               <Badge tone="info" toneAndProgressLabelOverride=" ">
-                Up next
+                {copy.badgeUpNext}
               </Badge>
             ) : (
               <Badge tone="attention" toneAndProgressLabelOverride=" ">
-                Current step
+                {copy.badgeCurrent}
               </Badge>
             )}
           </InlineStack>
@@ -443,12 +430,34 @@ function StepCard({
   );
 }
 
+function labelForStep(
+  step: OnboardingStep | null,
+  copy: ReturnType<typeof useI18n>["pages"]["onboarding"],
+): string {
+  switch (step) {
+    case "welcome":
+      return copy.stepWelcome;
+    case "scopes":
+      return copy.stepScopes;
+    case "playbook":
+      return copy.stepPlaybook;
+    case "settings":
+      return copy.stepSettings;
+    default:
+      return copy.stepDone;
+  }
+}
+
 function ScopesList({
   granted,
   missing,
+  grantedLabel,
+  missingLabel,
 }: {
   granted: string[];
   missing: readonly string[];
+  grantedLabel: string;
+  missingLabel: string;
 }) {
   return (
     <Box paddingBlockStart="100">
@@ -461,7 +470,7 @@ function ScopesList({
                 tone={isGranted ? "success" : "critical"}
                 toneAndProgressLabelOverride=" "
               >
-                {isGranted ? "Granted" : "Missing"}
+                {isGranted ? grantedLabel : missingLabel}
               </Badge>
               <Text as="span" variant="bodyMd">
                 {scope}
@@ -472,19 +481,4 @@ function ScopesList({
       </BlockStack>
     </Box>
   );
-}
-
-function labelForStep(step: OnboardingStep | null): string {
-  switch (step) {
-    case "welcome":
-      return "Welcome";
-    case "scopes":
-      return "Connection check";
-    case "playbook":
-      return "First playbook";
-    case "settings":
-      return "Risk thresholds";
-    default:
-      return "All done";
-  }
 }

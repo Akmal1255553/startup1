@@ -1,4 +1,6 @@
 import prisma from "../db.server";
+import { getReturnsCopy } from "../i18n/messages/app/returns";
+import type { Locale } from "../i18n/types";
 import type { DashboardData, RiskSettings } from "./return-risk";
 import { getRiskSettings } from "./return-risk.server";
 import {
@@ -199,7 +201,9 @@ export async function loadReturnsQueuePage(
   admin: ShopifyAdmin,
   shop: string,
   params: ReturnsQueueParams,
+  locale: Locale = "en",
 ): Promise<ReturnsQueuePage> {
+  const queueCopy = getReturnsCopy(locale);
   const settings = await getRiskSettings(shop);
   const pageSize = clampPageSize(params.pageSize);
   const searchQuery = sanitizeSearchQuery(params.query);
@@ -288,10 +292,15 @@ export async function loadReturnsQueuePage(
             settings,
             playbooks,
             [],
+            locale,
           );
           const factors = [
             ...scored.factors,
-            `Shopify return ${ret.name} (${ret.status}) · ${ret.totalQuantity} unit(s)`,
+            queueCopy.queueFactorReturn(
+              ret.name,
+              ret.status,
+              ret.totalQuantity,
+            ),
           ];
           rows.push({
             ...scored,
@@ -312,6 +321,7 @@ export async function loadReturnsQueuePage(
           settings,
           playbooks,
           [],
+          locale,
         );
         rows.push({
           ...scored,
@@ -322,10 +332,7 @@ export async function loadReturnsQueuePage(
           returnStatus: null,
           returnQuantity: null,
           createdAt: order.createdAt,
-          factors: [
-            ...scored.factors,
-            "No open Shopify Return on this order — triage uses order-level risk.",
-          ],
+          factors: [...scored.factors, queueCopy.queueFactorNoReturn],
           savedDecision: scored.savedDecision,
         });
       }

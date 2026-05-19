@@ -53,14 +53,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const locale = await resolveLocale(request);
 
   return json({
-    devStore: "store-fbugaeho.myshopify.com",
     showForm: Boolean(login),
     locale,
   });
 };
 
 export default function Index() {
-  const { devStore, showForm } = useLoaderData<typeof loader>();
+  const { showForm } = useLoaderData<typeof loader>();
   const { locale } = useI18n();
   const L = getLandingCopy(toMarketingLocale(locale));
 
@@ -116,26 +115,11 @@ export default function Index() {
               <p className={styles.lede}>{L.heroLede}</p>
 
               {showForm ? (
-                <div className={styles.ctaRow}>
-                  <a
-                    className={styles.btnPrimary}
-                    href={`/auth/login?shop=${devStore}`}
-                  >
-                    {L.btnOpenDev}
-                  </a>
-                  <a className={styles.btnGhost} href="#demo">
-                    {L.btnSeeInterface}
-                  </a>
-                </div>
-              ) : (
-                <p className={styles.ledeMuted}>{L.installDisabled}</p>
-              )}
-
-              {showForm ? (
                 <Form
                   className={styles.inlineForm}
                   method="post"
                   action="/auth/login"
+                  id="install"
                 >
                   <label className={styles.srOnly} htmlFor="shop-domain">
                     {L.labelStoreDomain}
@@ -145,14 +129,24 @@ export default function Index() {
                     className={styles.inlineInput}
                     type="text"
                     name="shop"
-                    defaultValue={devStore}
+                    required
                     placeholder={L.placeholderShop}
                     autoComplete="url"
                   />
-                  <button className={styles.btnSecondary} type="submit">
-                    {L.btnOtherStore}
+                  <button className={styles.btnPrimary} type="submit">
+                    {L.btnInstall}
                   </button>
                 </Form>
+              ) : (
+                <p className={styles.ledeMuted}>{L.installDisabled}</p>
+              )}
+
+              {showForm ? (
+                <div className={styles.ctaRow}>
+                  <a className={styles.btnGhost} href="#demo">
+                    {L.btnSeeInterface}
+                  </a>
+                </div>
               ) : null}
 
               <ul className={styles.trustChips}>
@@ -271,7 +265,7 @@ export default function Index() {
           </div>
         </section>
 
-        <section className={styles.ctaBand} id="install" aria-labelledby="cta-heading">
+        <section className={styles.ctaBand} aria-labelledby="cta-heading">
           <div className={styles.ctaInner}>
             <h2 id="cta-heading" className={styles.ctaTitle}>
               {L.ctaTitle}
@@ -279,11 +273,8 @@ export default function Index() {
             <p className={styles.ctaLead}>{L.ctaLead}</p>
             {showForm ? (
               <div className={styles.ctaActions}>
-                <a
-                  className={styles.btnPrimaryInverse}
-                  href={`/auth/login?shop=${devStore}`}
-                >
-                  {L.btnInstallDev}
+                <a className={styles.btnPrimaryInverse} href="#install">
+                  {L.btnInstallCta}
                 </a>
                 <a className={styles.btnLinkLight} href="#product">
                   {L.btnExplore}

@@ -23,6 +23,7 @@ import {
 } from "../models/return-risk.server";
 import type { RiskSettings } from "../models/return-risk";
 import { loadCapabilities } from "../models/plan-gating.server";
+import { useI18n } from "../i18n/i18n-context";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
@@ -51,6 +52,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function SettingsPage() {
   const { settings, capabilities } = useLoaderData<typeof loader>();
+  const { pages: { settings: s, common: c } } = useI18n();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const shopify = useAppBridge();
@@ -63,29 +65,26 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (actionData && actionData.ok) {
-      shopify.toast.show("Risk settings saved");
+      shopify.toast.show(s.toastSaved);
     }
   }, [actionData, shopify.toast]);
 
   return (
     <Page
-      title="Risk Settings"
-      subtitle="Tune ReturnGuard to match your refund policy and support capacity"
-      backAction={{ content: "Dashboard", url: "/app" }}
+      title={s.title}
+      subtitle={s.subtitle}
+      backAction={{ content: c.backDashboard, url: "/app" }}
     >
-      <TitleBar title="Risk Settings" />
+      <TitleBar title={s.title} />
       <Form method="post">
         <BlockStack gap="500">
           {settingsLocked ? (
             <Banner
-              title="Risk settings can be saved only on a paid plan"
+              title={s.lockedTitle}
               tone="warning"
-              action={{ content: "Open billing", url: "/app/billing" }}
+              action={{ content: c.openBilling, url: "/app/billing" }}
             >
-              <p>
-                You're on {capabilities.planLabel}. Saving thresholds and
-                signal weights requires Starter, Growth, or Scale.
-              </p>
+              <p>{s.lockedBody(capabilities.planLabel)}</p>
             </Banner>
           ) : null}
 
@@ -93,10 +92,10 @@ export default function SettingsPage() {
             <Card>
               <InlineStack gap="200" blockAlign="center">
                 <Badge tone="success" toneAndProgressLabelOverride=" ">
-                  Saved
+                  {s.savedBadge}
                 </Badge>
                 <Text as="p" variant="bodyMd">
-                  Risk settings were updated.
+                  {s.savedMessage}
                 </Text>
               </InlineStack>
             </Card>
@@ -113,32 +112,32 @@ export default function SettingsPage() {
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
-                Decision thresholds
+                {s.sectionThresholds}
               </Text>
               <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
                 <SettingField
-                  label="Manual review risk threshold"
+                  label={s.reviewThreshold}
                   name={undefined}
                   value={reviewThreshold}
                   onChange={(value) => setReviewThreshold(Number(value) || 0)}
-                  helpText="Orders at or above this score enter the review queue."
+                  helpText={s.reviewHelp}
                 />
                 <SettingField
-                  label="Refund hold risk threshold"
+                  label={s.holdThreshold}
                   name={undefined}
                   value={holdThreshold}
                   onChange={(value) => setHoldThreshold(Number(value) || 0)}
-                  helpText="Orders at or above this score should be paused before refunding."
+                  helpText={s.holdHelp}
                 />
                 <SettingField
-                  label="Medium order value"
+                  label={s.mediumValue}
                   name="mediumValueThreshold"
                   value={settings.mediumValueThreshold}
                   onChange={() => {}}
                   prefix="$"
                 />
                 <SettingField
-                  label="High order value"
+                  label={s.highValue}
                   name="highValueThreshold"
                   value={settings.highValueThreshold}
                   onChange={() => {}}
@@ -146,7 +145,7 @@ export default function SettingsPage() {
                 />
               </InlineGrid>
               <RangeSlider
-                label="Manual review threshold"
+                label={s.reviewThreshold}
                 value={reviewThreshold}
                 min={10}
                 max={95}
@@ -156,7 +155,7 @@ export default function SettingsPage() {
                 }
               />
               <RangeSlider
-                label="Hold threshold"
+                label={s.holdThreshold}
                 value={holdThreshold}
                 min={20}
                 max={99}
@@ -181,39 +180,39 @@ export default function SettingsPage() {
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">
-                Risk signal weights
+                {s.sectionWeights}
               </Text>
               <InlineGrid columns={{ xs: 1, md: 2 }} gap="400">
                 <SettingField
-                  label="New customer risk delta"
+                  label={s.newCustomer}
                   name="newCustomerRiskDelta"
                   value={settings.newCustomerRiskDelta}
                   onChange={() => {}}
                 />
                 <SettingField
-                  label="Repeat customer risk delta"
+                  label={s.repeatCustomer}
                   name="repeatCustomerRiskDelta"
                   value={settings.repeatCustomerRiskDelta}
                   onChange={() => {}}
                 />
                 <SettingField
-                  label="Unfulfilled order risk delta"
+                  label={s.unfulfilled}
                   name="unfulfilledRiskDelta"
                   value={settings.unfulfilledRiskDelta}
                   onChange={() => {}}
                 />
                 <SettingField
-                  label="Payment review risk delta"
+                  label={s.paymentReview}
                   name="paymentReviewRiskDelta"
                   value={settings.paymentReviewRiskDelta}
                   onChange={() => {}}
                 />
                 <SettingField
-                  label="Protected margin multiplier"
+                  label={s.marginMultiplier}
                   name="protectedMarginMultiplier"
                   value={settings.protectedMarginMultiplier}
                   onChange={() => {}}
-                  helpText="Example: 0.25 means ReturnGuard estimates 25% of flagged GMV as margin at risk."
+                  helpText={s.marginHelp}
                 />
               </InlineGrid>
             </BlockStack>
@@ -226,7 +225,7 @@ export default function SettingsPage() {
               loading={isSaving}
               disabled={settingsLocked}
             >
-              Save settings
+              {s.submit}
             </Button>
           </InlineStack>
         </BlockStack>

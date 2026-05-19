@@ -26,12 +26,15 @@ import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { useEffect, useState } from "react";
 
 import { authenticate } from "../shopify.server";
+import { useI18n } from "../i18n/i18n-context";
+import { describePlanContext } from "../i18n/messages/app/common";
+import { getAuditCopy } from "../i18n/messages/app/audit";
+import { resolveLocale } from "../i18n/resolver.server";
 import { loadAuditLog } from "../models/audit-log.server";
 import { deleteDecisionEvent } from "../models/return-risk.server";
 import { getDecisionLabel, getDecisionTone } from "../models/return-risk";
 import { readSafeFormData, toActionFailure } from "../lib/validation.server";
 import { loadCapabilities } from "../models/plan-gating.server";
-import { describePlanContext } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -66,10 +69,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const capabilities = await loadCapabilities(billing);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
   if (!capabilities.canUseAuditLog) {
-    return actionFailure(
-      "Audit log is available on the Growth and Scale plans.",
-    );
+    return actionFailure(getAuditCopy(locale).errorGated);
   }
 
   try {
@@ -82,6 +87,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function AuditLogPage() {
   const loaderData = useLoaderData<typeof loader>();
+  const {
+    pages: { audit: a, common: c },
+    locale,
+  } = useI18n();
+  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
   const {
     decision,
     events,
@@ -104,20 +114,23 @@ export default function AuditLogPage() {
   if (gated) {
     return (
       <Page
-        title="Audit Log"
-        subtitle="Decision history for refund moderation, bulk actions, and review changes"
-        backAction={{ content: "Dashboard", url: "/app" }}
+        title={a.title}
+        subtitle={a.subtitle}
+        backAction={{ content: c.backDashboard, url: "/app" }}
       >
-        <TitleBar title="Audit Log" />
+        <TitleBar title={a.title} />
         <Banner
-          title="Audit Log is a Growth feature"
+          title={a.gatedTitle}
           tone="warning"
-          action={{ content: "Open billing", url: "/app/billing" }}
+          action={{ content: c.openBilling, url: "/app/billing" }}
         >
           <p>
-            {describePlanContext(capabilities)}{" "}
-            Upgrade to Growth or Scale to unlock the full decision history with
-            search, filters, and removable events.
+            {describePlanContext(
+              c,
+              capabilities.planLabel,
+              capabilities.hasActivePlan,
+            )}{" "}
+            {a.gatedBody}
           </p>
         </Banner>
       </Page>
@@ -148,35 +161,35 @@ export default function AuditLogPage() {
         {event.label}
       </Text>
       <Text as="span" variant="bodySm" tone="subdued">
-        {event.returnId ? "Return-level action" : "Order-level action"}
+        {event.returnId ? a.rowReturnLevel : a.rowOrderLevel}
       </Text>
     </BlockStack>,
     <InlineStack key={`${event.id}-decision`} gap="200" blockAlign="center">
       {event.previousDecision ? (
         <Badge tone="info" toneAndProgressLabelOverride=" ">
-          {getDecisionLabel(event.previousDecision)}
+          {getDecisionLabel(event.previousDecision, locale)}
         </Badge>
       ) : null}
       <Badge
         tone={getDecisionTone(event.decision)}
         toneAndProgressLabelOverride=" "
       >
-        {getDecisionLabel(event.decision)}
+        {getDecisionLabel(event.decision, locale)}
       </Badge>
     </InlineStack>,
     event.risk === null ? "-" : String(event.risk),
-    new Date(event.createdAt).toLocaleString("en-US"),
+    new Date(event.createdAt).toLocaleString(dateLocale),
     <DeleteEventForm key={`${event.id}-delete`} eventId={event.id} />,
   ]);
 
   return (
     <Page
-      title="Audit Log"
-      subtitle="Decision history for refund moderation, bulk actions, and review changes"
-      backAction={{ content: "Dashboard", url: "/app" }}
-      secondaryActions={[{ content: "Open queue", url: "/app/returns" }]}
+      title={a.title}
+      subtitle={a.subtitle}
+      backAction={{ content: c.backDashboard, url: "/app" }}
+      secondaryActions={[{ content: c.openQueue, url: "/app/returns" }]}
     >
-      <TitleBar title="Audit Log" />
+      <TitleBar title={a.title} />
       <BlockStack gap="500">
         {actionData && !actionData.ok ? (
           <Card>
@@ -191,10 +204,10 @@ export default function AuditLogPage() {
             <InlineStack align="space-between" blockAlign="center">
               <Box minWidth="320px">
                 <TextField
-                  label="Search audit log"
+                  label={a.searchLabel}
                   labelHidden
                   autoComplete="off"
-                  placeholder="Search order, return, or id"
+                  placeholder={a.searchPlaceholder}
                   value={searchValue}
                   onChange={setSearchValue}
                   connectedRight={
@@ -207,20 +220,20 @@ export default function AuditLogPage() {
                         })
                       }
                     >
-                      Search
+                      {c.search}
                     </Button>
                   }
                 />
               </Box>
               <InlineStack gap="200">
                 <Select
-                  label="Decision"
+                  label={a.filterDecision}
                   labelHidden
                   options={[
-                    { label: "All decisions", value: "all" },
-                    { label: "Approved", value: "approved" },
-                    { label: "Review", value: "review" },
-                    { label: "Hold", value: "hold" },
+                    { label: a.filterAll, value: "all" },
+                    { label: a.filterApproved, value: "approved" },
+                    { label: a.filterReview, value: "review" },
+                    { label: a.filterHold, value: "hold" },
                   ]}
                   value={decision}
                   onChange={(value) =>
@@ -231,13 +244,13 @@ export default function AuditLogPage() {
                   }
                 />
                 <Select
-                  label="Page size"
+                  label={c.pageSize}
                   labelHidden
                   options={[
-                    { label: "10 per page", value: "10" },
-                    { label: "25 per page", value: "25" },
-                    { label: "50 per page", value: "50" },
-                    { label: "100 per page", value: "100" },
+                    { label: c.perPage(10), value: "10" },
+                    { label: c.perPage(25), value: "25" },
+                    { label: c.perPage(50), value: "50" },
+                    { label: c.perPage(100), value: "100" },
                   ]}
                   value={String(pageSize)}
                   onChange={(value) =>
@@ -247,7 +260,7 @@ export default function AuditLogPage() {
               </InlineStack>
             </InlineStack>
             <Text as="p" variant="bodySm" tone="subdued">
-              {total} audit event{total === 1 ? "" : "s"} found.
+              {a.eventsFound(total)}
             </Text>
           </BlockStack>
         </Card>
@@ -257,7 +270,13 @@ export default function AuditLogPage() {
             {events.length ? (
               <DataTable
                 columnContentTypes={["text", "text", "numeric", "text", "text"]}
-                headings={["Subject", "Decision", "Risk", "Created", ""]}
+                headings={[
+                  a.colSubject,
+                  a.colDecision,
+                  a.colRisk,
+                  a.colCreated,
+                  "",
+                ]}
                 rows={rows}
                 increasedTableDensity
               />
@@ -268,13 +287,13 @@ export default function AuditLogPage() {
                 borderRadius="200"
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  No audit events match these filters.
+                  {a.empty}
                 </Text>
               </Box>
             )}
             <InlineStack align="space-between" blockAlign="center">
               <Text as="span" variant="bodySm" tone="subdued">
-                Page {page} of {totalPages}
+                {a.pageOf(page, totalPages)}
               </Text>
               <Pagination
                 hasPrevious={page > 1}
@@ -297,18 +316,21 @@ export default function AuditLogPage() {
 }
 
 function DeleteEventForm({ eventId }: { eventId: string }) {
+  const {
+    pages: { audit: a },
+  } = useI18n();
   return (
     <Form
       method="post"
       onSubmit={(event) => {
-        if (!window.confirm("Delete this audit event?")) {
+        if (!window.confirm(a.deleteConfirm)) {
           event.preventDefault();
         }
       }}
     >
       <input type="hidden" name="eventId" value={eventId} />
       <Button submit tone="critical" variant="tertiary" size="micro">
-        Delete
+        {a.delete}
       </Button>
     </Form>
   );

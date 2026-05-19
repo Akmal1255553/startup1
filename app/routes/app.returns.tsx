@@ -51,13 +51,18 @@ import {
   toActionFailure,
 } from "../lib/validation.server";
 import { loadCapabilities } from "../models/plan-gating.server";
-import { describePlanContext, type PlanCapabilities } from "../billing/capabilities";
+import type { PlanCapabilities } from "../billing/capabilities";
 import { actionFailure } from "../lib/action-result";
+import { useI18n } from "../i18n/i18n-context";
+import { describePlanContext } from "../i18n/messages/app/common";
+import { getReturnsCopy } from "../i18n/messages/app/returns";
+import { resolveLocale } from "../i18n/resolver.server";
 import type { loader as detailLoader } from "./app.returns.detail";
 import { useCsvExport } from "../hooks/use-csv-export";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing } = await authenticate.admin(request);
+  const locale = await resolveLocale(request);
   const capabilities = await loadCapabilities(billing);
   const url = new URL(request.url);
   const requestedPageSize = Number(url.searchParams.get("pageSize")) || null;
@@ -71,7 +76,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     pageSize: clampedPageSize,
   };
 
-  const page = await loadReturnsQueuePage(admin, session.shop, params);
+  const page = await loadReturnsQueuePage(admin, session.shop, params, locale);
   return { ...page, capabilities };
 };
 
@@ -84,6 +89,8 @@ function parseDirection(
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
+  const locale = await resolveLocale(request);
+  const copy = getReturnsCopy(locale);
   const capabilities = await loadCapabilities(billing);
   let formData: FormData;
   try {
@@ -96,17 +103,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     if (intent === "bulk") {
       if (!capabilities.canBulkAct) {
-        return actionFailure(
-          "Bulk moderation is available on the Growth and Scale plans. Open Billing to upgrade.",
-        );
+        return actionFailure(copy.errorBulkGated);
       }
       return await saveBulkReturnDecisions(session.shop, formData);
     }
     if (intent === "delete-event") {
       if (!capabilities.canUseAuditLog) {
-        return actionFailure(
-          "Decision history is available on the Growth and Scale plans.",
-        );
+        return actionFailure(copy.errorHistoryGated);
       }
       return await deleteDecisionEvent(session.shop, formData);
     }
@@ -130,11 +133,16 @@ export default function ReturnsQueuePage() {
     hasExpandedReturns,
     capabilities,
   } = useLoaderData<typeof loader>();
+  const {
+    pages: { returns: r, common: c },
+    locale,
+  } = useI18n();
+  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
-  const moneyFormatter = getMoneyFormatter(summary.currencyCode);
+  const moneyFormatter = getMoneyFormatter(summary.currencyCode, dateLocale);
   const csvExport = useCsvExport();
 
   const [searchValue, setSearchValue] = useState(searchQuery);
@@ -249,7 +257,7 @@ export default function ReturnsQueuePage() {
             <BlockStack gap="050">
               <InlineStack gap="200" blockAlign="center">
                 <Text as="p" variant="bodyMd">
-                  <strong>{order.returnName ?? "Return"}</strong>
+                  <strong>{order.returnName ?? r.returnFallback}</strong>
                   {order.returnStatus
                     ? ` · ${order.returnStatus
                         .split("_")
@@ -264,10 +272,10 @@ export default function ReturnsQueuePage() {
             </BlockStack>
           </InlineStack>
           <Text as="span" variant="bodySm" tone="subdued">
-            Return opened {new Date(order.createdAt).toLocaleDateString("en-US")}
-            {typeof order.returnQuantity === "number"
-              ? ` · ${order.returnQuantity} unit(s)`
-              : ""}
+            {r.returnOpened(
+              new Date(order.createdAt).toLocaleDateString(dateLocale),
+              typeof order.returnQuantity === "number" ? order.returnQuantity : 0,
+            )}
           </Text>
         </BlockStack>,
         <BlockStack key={`${order.id}-customer`} gap="050">
@@ -275,7 +283,7 @@ export default function ReturnsQueuePage() {
             {order.customer}
           </Text>
           <Text as="span" variant="bodySm" tone="subdued">
-            {order.customerOrders} lifetime orders
+            {r.lifetimeOrders(order.customerOrders)}
           </Text>
         </BlockStack>,
         moneyFormatter.format(order.value),
@@ -289,39 +297,41 @@ export default function ReturnsQueuePage() {
           </Text>
           <Box>
             <Button variant="plain" onClick={() => openDetail(order)}>
-              View details
+              {r.viewDetails}
             </Button>
           </Box>
         </BlockStack>,
         <DecisionControls key={`${order.id}-decision`} order={order} />,
       ]),
-    [sortedOrders, selectedIdSet, moneyFormatter, openDetail],
+    [sortedOrders, selectedIdSet, moneyFormatter, openDetail, r, dateLocale],
   );
 
   return (
     <Page
-      title="Returns Queue"
-      subtitle="A focused workspace for reviewing refund risk before margin leaves the store"
+      title={r.title}
+      subtitle={r.subtitle}
       primaryAction={
         !capabilities.canExportCsv || csvExport.needsUpgrade
-          ? { content: "Export CSV (upgrade)", url: "/app/billing" }
+          ? { content: c.exportCsvUpgrade, url: "/app/billing" }
           : {
-              content: csvExport.isExporting ? "Preparing CSV…" : "Export CSV",
+              content: csvExport.isExporting
+                ? c.exportCsvPreparing
+                : c.exportCsv,
               onAction: csvExport.exportCsv,
               loading: csvExport.isExporting,
               disabled: csvExport.isExporting,
             }
       }
-      secondaryActions={[{ content: "Risk settings", url: "/app/settings" }]}
+      secondaryActions={[{ content: r.riskSettings, url: "/app/settings" }]}
     >
-      <TitleBar title="Returns Queue" />
+      <TitleBar title={r.title} />
       <BlockStack gap="500">
         <PlanBanner capabilities={capabilities} />
         {error ? (
           <Card>
             <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
-                Shopify data did not load
+                {r.errorLoad}
               </Text>
               <Text as="p" variant="bodyMd" tone="subdued">
                 {error}
@@ -335,9 +345,9 @@ export default function ReturnsQueuePage() {
             <InlineStack align="space-between" blockAlign="center">
               <Box minWidth="320px">
                 <TextField
-                  label="Search queue"
+                  label={r.searchLabel}
                   labelHidden
-                  placeholder="Search by order (#1001) or return name"
+                  placeholder={r.searchPlaceholder}
                   autoComplete="off"
                   value={searchValue}
                   onChange={setSearchValue}
@@ -347,42 +357,45 @@ export default function ReturnsQueuePage() {
                       onClick={handleSearchSubmit}
                       loading={isLoading && navigation.location?.search.includes("q=")}
                     >
-                      Search
+                      {c.search}
                     </Button>
                   }
                 />
               </Box>
               <InlineStack gap="200">
                 <Select
-                  label="Filter"
+                  label={r.filter}
                   labelHidden
                   options={[
-                    { label: "All on this page", value: "all" },
-                    { label: "Hold", value: "hold" },
-                    { label: "Review", value: "review" },
-                    { label: "Approved", value: "approved" },
-                    { label: "Undecided", value: "undecided" },
+                    { label: r.filterAll, value: "all" },
+                    { label: r.filterHold, value: "hold" },
+                    { label: r.filterReview, value: "review" },
+                    { label: r.filterApproved, value: "approved" },
+                    { label: r.filterUndecided, value: "undecided" },
                   ]}
                   value={selectedFilter}
                   onChange={setSelectedFilter}
                 />
                 <Select
-                  label="Sort"
+                  label={r.sort}
                   labelHidden
                   options={[
-                    { label: "Risk high to low", value: "risk_desc" },
-                    { label: "Risk low to high", value: "risk_asc" },
-                    { label: "Value high to low", value: "value_desc" },
-                    { label: "Newest first", value: "created_desc" },
-                    { label: "Oldest first", value: "created_asc" },
+                    { label: r.sortRiskDesc, value: "risk_desc" },
+                    { label: r.sortRiskAsc, value: "risk_asc" },
+                    { label: r.sortValueDesc, value: "value_desc" },
+                    { label: r.sortCreatedDesc, value: "created_desc" },
+                    { label: r.sortCreatedAsc, value: "created_asc" },
                   ]}
                   value={sortValue}
                   onChange={setSortValue}
                 />
                 <Select
-                  label="Page size"
+                  label={c.pageSize}
                   labelHidden
-                  options={getPageSizeOptions(capabilities.maxQueuePageSize)}
+                  options={getPageSizeOptions(
+                    capabilities.maxQueuePageSize,
+                    c,
+                  )}
                   value={String(pageSize)}
                   onChange={handlePageSizeChange}
                 />
@@ -391,7 +404,7 @@ export default function ReturnsQueuePage() {
             {searchQuery ? (
               <InlineStack gap="200" blockAlign="center">
                 <Text as="span" variant="bodySm" tone="subdued">
-                  Filtered by Shopify search: "{searchQuery}"
+                  {r.filteredBy(searchQuery)}
                 </Text>
                 <Button
                   variant="plain"
@@ -404,7 +417,7 @@ export default function ReturnsQueuePage() {
                     });
                   }}
                 >
-                  Clear
+                  {r.clear}
                 </Button>
               </InlineStack>
             ) : null}
@@ -416,20 +429,17 @@ export default function ReturnsQueuePage() {
             <InlineStack align="space-between" blockAlign="center">
               <BlockStack gap="100">
                 <Text as="h2" variant="headingMd">
-                  Review workload
+                  {r.workloadTitle}
                 </Text>
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  Showing {sortedOrders.length} queue row
-                  {sortedOrders.length === 1 ? "" : "s"} from {sourceOrderCount}{" "}
-                  Shopify order
-                  {sourceOrderCount === 1 ? "" : "s"} on this page.
+                  {r.workloadSubtitle(sortedOrders.length, sourceOrderCount)}
                   {!hasExpandedReturns && sortedOrders.length
-                    ? " No Return records loaded for these orders — triage is shown at order level (refresh after creating a Return in Admin)."
+                    ? ` ${r.noReturnsNote}`
                     : null}
                 </Text>
               </BlockStack>
               <Badge tone="attention" toneAndProgressLabelOverride=" ">
-                {`${summary.reviewCount + summary.holdCount} needs action`}
+                {r.needsAction(summary.reviewCount + summary.holdCount)}
               </Badge>
             </InlineStack>
 
@@ -444,12 +454,12 @@ export default function ReturnsQueuePage() {
                   "text",
                 ]}
                 headings={[
-                  "Return · order",
-                  "Customer",
-                  "Value",
-                  "Risk",
-                  "Recommendation",
-                  "Decision",
+                  r.colReturn,
+                  r.colCustomer,
+                  r.colValue,
+                  r.colRisk,
+                  r.colRecommendation,
+                  r.colDecision,
                 ]}
                 rows={rows}
                 increasedTableDensity
@@ -461,9 +471,7 @@ export default function ReturnsQueuePage() {
                 borderRadius="200"
               >
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  {orders.length
-                    ? "No rows on this page match the local filter."
-                    : "No orders on this page. Clear the search, change page size, or use pagination — data is refreshed from Shopify on each navigation."}
+                  {orders.length ? r.emptyFiltered : r.emptyPage}
                 </Text>
               </Box>
             )}
@@ -486,12 +494,12 @@ export default function ReturnsQueuePage() {
           <BlockStack gap="300">
             <InlineStack align="space-between" blockAlign="center">
               <Text as="h2" variant="headingMd">
-                Recent decision history
+                {r.historyTitle}
               </Text>
               <Text as="span" variant="bodySm" tone="subdued">
                 {recentActions.length
-                  ? `${recentActions.length} entries`
-                  : "No entries"}
+                  ? r.historyCount(recentActions.length)
+                  : r.historyNoEntries}
               </Text>
             </InlineStack>
             {recentActions.length ? (
@@ -500,7 +508,7 @@ export default function ReturnsQueuePage() {
               ))
             ) : (
               <Text as="p" variant="bodyMd" tone="subdued">
-                No decision history yet.
+                {r.historyEmpty}
               </Text>
             )}
           </BlockStack>
@@ -597,22 +605,26 @@ function RiskMeter({ order }: { order: RiskOrder }) {
 function DecisionControls({ order }: { order: RiskOrder }) {
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
+  const {
+    pages: { returns: r },
+    locale,
+  } = useI18n();
   const isSaving = fetcher.state !== "idle";
   const currentDecision =
     fetcher.formData?.get("decision")?.toString() || order.savedDecision;
 
   useEffect(() => {
     if (fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
-      shopify.toast.show("Decision saved");
+      shopify.toast.show(r.toastSaved);
     }
-  }, [fetcher.data, shopify.toast]);
+  }, [fetcher.data, shopify.toast, r.toastSaved]);
 
   return (
     <BlockStack gap="200">
       <InlineStack gap="200">
         <DecisionButton
           decision="approved"
-          label="Approve"
+          label={r.approve}
           order={order}
           pressed={currentDecision === "approved"}
           loading={isSaving && fetcher.formData?.get("decision") === "approved"}
@@ -621,7 +633,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
         />
         <DecisionButton
           decision="review"
-          label="Review"
+          label={r.review}
           order={order}
           pressed={currentDecision === "review"}
           loading={isSaving && fetcher.formData?.get("decision") === "review"}
@@ -629,7 +641,7 @@ function DecisionControls({ order }: { order: RiskOrder }) {
         />
         <DecisionButton
           decision="hold"
-          label="Hold"
+          label={r.hold}
           order={order}
           pressed={currentDecision === "hold"}
           loading={isSaving && fetcher.formData?.get("decision") === "hold"}
@@ -642,16 +654,16 @@ function DecisionControls({ order }: { order: RiskOrder }) {
           tone={getDecisionTone(currentDecision)}
           toneAndProgressLabelOverride=" "
         >
-          {getDecisionLabel(currentDecision)}
+          {getDecisionLabel(currentDecision, locale)}
         </Badge>
       ) : (
         <Text as="span" variant="bodySm" tone="subdued">
-          No decision yet
+          {r.noDecision}
         </Text>
       )}
       {order.appliedPlaybooks.length ? (
         <Text as="span" variant="bodySm" tone="subdued">
-          Playbook: {order.appliedPlaybooks.join(", ")}
+          {r.playbook(order.appliedPlaybooks.join(", "))}
         </Text>
       ) : null}
     </BlockStack>
@@ -705,14 +717,18 @@ function BulkDecisionControls({
   selectedRows: RiskOrder[];
   capabilities: PlanCapabilities;
 }) {
+  const {
+    pages: { returns: r, common: c },
+  } = useI18n();
+
   if (!capabilities.canBulkAct) {
     return (
       <InlineStack gap="200" blockAlign="center">
         <Text as="p" variant="bodySm" tone="subdued">
-          Bulk actions are available on Growth and Scale.
+          {r.bulkLocked}
         </Text>
         <Button url="/app/billing" variant="plain">
-          Upgrade plan
+          {c.upgradePlan}
         </Button>
       </InlineStack>
     );
@@ -721,7 +737,7 @@ function BulkDecisionControls({
   if (!selectedRows.length) {
     return (
       <Text as="p" variant="bodySm" tone="subdued">
-        Select returns to run bulk decisions.
+        {r.selectPrompt}
       </Text>
     );
   }
@@ -731,15 +747,19 @@ function BulkDecisionControls({
       <BulkForm
         selectedRows={selectedRows}
         decision="approved"
-        label="Bulk approve"
+        label={r.bulkApprove}
       />
-      <BulkForm selectedRows={selectedRows} decision="review" label="Bulk review" />
+      <BulkForm
+        selectedRows={selectedRows}
+        decision="review"
+        label={r.bulkReview}
+      />
       <BulkForm
         selectedRows={selectedRows}
         decision="hold"
-        label="Bulk hold"
+        label={r.bulkHold}
         tone="critical"
-        confirmMessage="Apply HOLD to selected returns?"
+        confirmMessage={r.bulkConfirmHold}
       />
     </InlineStack>
   );
@@ -760,6 +780,9 @@ function BulkForm({
 }) {
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
+  const {
+    pages: { returns: r },
+  } = useI18n();
   useEffect(() => {
     if (fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
       const count =
@@ -767,10 +790,10 @@ function BulkForm({
           ? fetcher.data.count
           : null;
       shopify.toast.show(
-        count ? `Updated ${count} return row(s)` : "Bulk action applied",
+        count ? r.toastBulk(count) : r.toastBulkApplied,
       );
     }
-  }, [fetcher.data, shopify.toast]);
+  }, [fetcher.data, shopify.toast, r.toastBulk, r.toastBulkApplied]);
 
   return (
     <fetcher.Form
@@ -808,13 +831,18 @@ type DecisionHistoryEntry = {
 function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
+  const {
+    pages: { returns: r },
+    locale,
+  } = useI18n();
+  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
   const isDeleting = fetcher.state !== "idle";
 
   useEffect(() => {
     if (fetcher.data && "ok" in fetcher.data && fetcher.data.ok) {
-      shopify.toast.show("History entry removed");
+      shopify.toast.show(r.toastHistoryRemoved);
     }
-  }, [fetcher.data, shopify.toast]);
+  }, [fetcher.data, shopify.toast, r.toastHistoryRemoved]);
 
   return (
     <InlineStack align="space-between" blockAlign="center" gap="300">
@@ -823,25 +851,25 @@ function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
           {entry.orderName}
         </Text>
         <Text as="span" variant="bodySm" tone="subdued">
-          {new Date(entry.createdAt).toLocaleString("en-US")}
+          {new Date(entry.createdAt).toLocaleString(dateLocale)}
         </Text>
       </BlockStack>
       <InlineStack gap="200" blockAlign="center">
         {entry.previousDecision ? (
           <Badge tone="attention" toneAndProgressLabelOverride=" ">
-            {getDecisionLabel(entry.previousDecision)}
+            {getDecisionLabel(entry.previousDecision, locale)}
           </Badge>
         ) : null}
         <Badge
           tone={getDecisionTone(entry.decision)}
           toneAndProgressLabelOverride=" "
         >
-          {getDecisionLabel(entry.decision)}
+          {getDecisionLabel(entry.decision, locale)}
         </Badge>
         <fetcher.Form
           method="post"
           onSubmit={(event) => {
-            if (!window.confirm("Remove this history entry?")) {
+            if (!window.confirm(r.historyDeleteConfirm)) {
               event.preventDefault();
             }
           }}
@@ -850,13 +878,13 @@ function DecisionHistoryRow({ entry }: { entry: DecisionHistoryEntry }) {
           <input type="hidden" name="eventId" value={entry.id} />
           <Button
             submit
-            accessibilityLabel="Delete history entry"
+            accessibilityLabel={r.historyDeleteAria}
             tone="critical"
             variant="tertiary"
             size="micro"
             loading={isDeleting}
           >
-            Delete
+            {r.historyDelete}
           </Button>
         </fetcher.Form>
       </InlineStack>
@@ -888,6 +916,12 @@ function ReturnDetailModal({
   moneyFormatter: Intl.NumberFormat;
   onClose: () => void;
 }) {
+  const {
+    pages: { returns: r },
+    locale,
+  } = useI18n();
+  const dateLocale = locale === "ru" ? "ru-RU" : "en-US";
+
   if (!row) {
     return (
       <Modal open={false} onClose={onClose} title="">
@@ -898,17 +932,17 @@ function ReturnDetailModal({
 
   const accountAgeLabel =
     row.accountAgeDays === null
-      ? "Unknown account age"
+      ? r.accountAgeUnknown
       : row.accountAgeDays === 0
-        ? "Created today"
-        : `${row.accountAgeDays} day${row.accountAgeDays === 1 ? "" : "s"} old account`;
+        ? r.accountAgeToday
+        : r.accountAgeDays(row.accountAgeDays);
 
   const riskTone: "critical" | "attention" | "success" =
     row.risk > 80 ? "critical" : row.risk >= 60 ? "attention" : "success";
 
   const title = row.returnName
     ? `${row.returnName} · ${row.name}`
-    : `Return triage · ${row.name}`;
+    : r.returnTriageTitle(row.name);
 
   return (
     <Modal open onClose={onClose} title={title} size="large">
@@ -919,26 +953,26 @@ function ReturnDetailModal({
               <InlineStack align="space-between" blockAlign="start">
                 <BlockStack gap="100">
                   <Text as="h2" variant="headingMd">
-                    Risk overview
+                    {r.modalRisk}
                   </Text>
                   <Text as="p" variant="bodyMd" tone="subdued">
-                    Suggested action: {row.recommendation}
+                    {r.modalSuggested(row.recommendation)}
                   </Text>
                 </BlockStack>
                 <InlineStack gap="200" blockAlign="center">
                   <Badge tone={riskTone} toneAndProgressLabelOverride=" ">
-                    {`Risk ${row.risk}`}
+                    {r.modalRiskBadge(row.risk)}
                   </Badge>
                   {row.savedDecision ? (
                     <Badge
                       tone={getDecisionTone(row.savedDecision)}
                       toneAndProgressLabelOverride=" "
                     >
-                      {getDecisionLabel(row.savedDecision)}
+                      {getDecisionLabel(row.savedDecision, locale)}
                     </Badge>
                   ) : (
                     <Badge tone="attention" toneAndProgressLabelOverride=" ">
-                      No decision yet
+                      {r.noDecision}
                     </Badge>
                   )}
                 </InlineStack>
@@ -963,16 +997,19 @@ function ReturnDetailModal({
           <Card>
             <BlockStack gap="300">
               <Text as="h3" variant="headingSm">
-                Customer
+                {r.modalCustomer}
               </Text>
               <InlineStack gap="400" wrap>
-                <DetailMetric label="Name" value={row.customer} />
-                <DetailMetric label="Email" value={row.email ?? "Not shared"} />
+                <DetailMetric label={r.detailName} value={row.customer} />
                 <DetailMetric
-                  label="Lifetime orders"
+                  label={r.detailEmail}
+                  value={row.email ?? r.emailNotShared}
+                />
+                <DetailMetric
+                  label={r.detailLifetimeOrders}
                   value={String(row.customerOrders)}
                 />
-                <DetailMetric label="Account age" value={accountAgeLabel} />
+                <DetailMetric label={r.detailAccountAge} value={accountAgeLabel} />
               </InlineStack>
             </BlockStack>
           </Card>
@@ -980,35 +1017,38 @@ function ReturnDetailModal({
           <Card>
             <BlockStack gap="300">
               <Text as="h3" variant="headingSm">
-                Order context
+                {r.modalOrder}
               </Text>
               <InlineStack gap="400" wrap>
                 <DetailMetric
-                  label="Order value"
+                  label={r.detailOrderValue}
                   value={moneyFormatter.format(row.value)}
                 />
-                <DetailMetric label="Payment" value={row.financialStatus} />
-                <DetailMetric label="Fulfillment" value={row.fulfillmentStatus} />
+                <DetailMetric label={r.detailPayment} value={row.financialStatus} />
                 <DetailMetric
-                  label="Opened"
-                  value={new Date(row.createdAt).toLocaleString("en-US")}
+                  label={r.detailFulfillment}
+                  value={row.fulfillmentStatus}
+                />
+                <DetailMetric
+                  label={r.detailOpened}
+                  value={new Date(row.createdAt).toLocaleString(dateLocale)}
                 />
                 {row.returnStatus ? (
                   <DetailMetric
-                    label="Return status"
+                    label={r.detailReturnStatus}
                     value={row.returnStatus.split("_").join(" ").toLowerCase()}
                   />
                 ) : null}
                 {typeof row.returnQuantity === "number" ? (
                   <DetailMetric
-                    label="Return quantity"
-                    value={`${row.returnQuantity} unit(s)`}
+                    label={r.detailReturnQuantity}
+                    value={String(row.returnQuantity)}
                   />
                 ) : null}
               </InlineStack>
               <Box>
                 <Button url={row.adminPath} target="_blank" variant="plain">
-                  Open in Shopify Admin
+                  {r.modalOpenAdmin}
                 </Button>
               </Box>
             </BlockStack>
@@ -1018,10 +1058,10 @@ function ReturnDetailModal({
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center" gap="200">
                 <Text as="h3" variant="headingSm">
-                  ReturnGuard analysis
+                  {r.modalAnalysis}
                 </Text>
                 <Badge tone="success" toneAndProgressLabelOverride=" ">
-                  AI
+                  {r.modalAiBadge}
                 </Badge>
               </InlineStack>
               <Text as="p" variant="bodyMd">
@@ -1033,7 +1073,7 @@ function ReturnDetailModal({
           <Card>
             <BlockStack gap="300">
               <Text as="h3" variant="headingSm">
-                Risk factors
+                {r.modalFactors}
               </Text>
               {row.riskReasons.length ? (
                 <BlockStack gap="200">
@@ -1064,13 +1104,13 @@ function ReturnDetailModal({
                 </BlockStack>
               ) : (
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  No risk factors recorded for this row.
+                  {r.modalNoFactors}
                 </Text>
               )}
               {row.appliedPlaybooks.length ? (
                 <Box paddingBlockStart="200">
                   <Text as="span" variant="bodySm" tone="subdued">
-                    Playbooks applied: {row.appliedPlaybooks.join(", ")}
+                    {r.modalPlaybooks(row.appliedPlaybooks.join(", "))}
                   </Text>
                 </Box>
               ) : null}
@@ -1081,7 +1121,7 @@ function ReturnDetailModal({
             <BlockStack gap="300">
               <InlineStack align="space-between" blockAlign="center">
                 <Text as="h3" variant="headingSm">
-                  Previous decisions on this order
+                  {r.modalPreviousDecisions}
                 </Text>
                 {isLoading ? <Spinner size="small" /> : null}
               </InlineStack>
@@ -1091,14 +1131,14 @@ function ReturnDetailModal({
                     <List.Item key={event.id}>
                       <InlineStack gap="200" blockAlign="center" wrap>
                         <Text as="span" variant="bodyMd">
-                          {new Date(event.createdAt).toLocaleString("en-US")}
+                          {new Date(event.createdAt).toLocaleString(dateLocale)}
                         </Text>
                         {event.previousDecision ? (
                           <Badge
                             tone={getDecisionTone(event.previousDecision)}
                             toneAndProgressLabelOverride=" "
                           >
-                            {getDecisionLabel(event.previousDecision)}
+                            {getDecisionLabel(event.previousDecision, locale)}
                           </Badge>
                         ) : null}
                         <Text as="span" variant="bodySm" tone="subdued">
@@ -1108,16 +1148,16 @@ function ReturnDetailModal({
                           tone={getDecisionTone(event.decision)}
                           toneAndProgressLabelOverride=" "
                         >
-                          {getDecisionLabel(event.decision)}
+                          {getDecisionLabel(event.decision, locale)}
                         </Badge>
                         {typeof event.risk === "number" ? (
                           <Text as="span" variant="bodySm" tone="subdued">
-                            risk {event.risk}
+                            {r.riskLabel(event.risk)}
                           </Text>
                         ) : null}
                         {event.returnId && event.returnId !== row.returnId ? (
                           <Text as="span" variant="bodySm" tone="subdued">
-                            (other return on same order)
+                            {r.otherReturn}
                           </Text>
                         ) : null}
                       </InlineStack>
@@ -1126,9 +1166,7 @@ function ReturnDetailModal({
                 </List>
               ) : (
                 <Text as="p" variant="bodyMd" tone="subdued">
-                  {isLoading
-                    ? "Loading history…"
-                    : "No decisions logged for this order yet."}
+                  {isLoading ? r.loadingHistory : r.noHistory}
                 </Text>
               )}
             </BlockStack>
@@ -1153,45 +1191,50 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 }
 
 function PlanBanner({ capabilities }: { capabilities: PlanCapabilities }) {
+  const {
+    pages: { returns: r, common: c },
+  } = useI18n();
+
   if (capabilities.hasActivePlan && capabilities.canBulkAct) return null;
 
   if (!capabilities.hasActivePlan) {
     return (
       <Banner
-        title="You're on the Free plan"
+        title={r.freeBannerTitle}
         tone="info"
-        action={{ content: "Compare paid plans", url: "/app/billing" }}
+        action={{ content: r.comparePlans, url: "/app/billing" }}
       >
-        <p>
-          Risk scoring, saving moderation decisions, CSV export, and risk
-          settings are included at no cost (queue up to{" "}
-          {capabilities.maxQueuePageSize} rows per page). Upgrade to Starter for
-          larger pages, or Growth for automation playbooks, bulk actions, and
-          the full audit log.
-        </p>
+        <p>{r.freeBannerBody(capabilities.maxQueuePageSize)}</p>
       </Banner>
     );
   }
 
   return (
     <Banner
-      title="Bulk moderation locked"
+      title={r.bulkBannerTitle}
       tone="info"
-      action={{ content: "Upgrade plan", url: "/app/billing" }}
+      action={{ content: c.upgradePlan, url: "/app/billing" }}
     >
       <p>
-        {describePlanContext(capabilities)} Bulk actions, automation playbooks,
-        and the audit log are available on Growth and Scale.
+        {describePlanContext(
+          c,
+          capabilities.planLabel,
+          capabilities.hasActivePlan,
+        )}{" "}
+        {r.bulkBannerBody}
       </p>
     </Banner>
   );
 }
 
-function getPageSizeOptions(maxQueuePageSize: number) {
-  return [
-    { label: "10 per page", value: "10" },
-    { label: "25 per page", value: "25" },
-    { label: "50 per page", value: "50" },
-    { label: "100 per page", value: "100" },
-  ].filter((option) => Number(option.value) <= maxQueuePageSize);
+function getPageSizeOptions(
+  maxQueuePageSize: number,
+  common: ReturnType<typeof useI18n>["pages"]["common"],
+) {
+  return [10, 25, 50, 100]
+    .filter((size) => size <= maxQueuePageSize)
+    .map((size) => ({
+      label: common.perPage(size),
+      value: String(size),
+    }));
 }

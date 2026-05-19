@@ -19,6 +19,10 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { useEffect, useState } from "react";
 import { authenticate } from "../shopify.server";
+import { useI18n } from "../i18n/i18n-context";
+import { describePlanContext } from "../i18n/messages/app/common";
+import { getPlaybooksCopy } from "../i18n/messages/app/playbooks";
+import { resolveLocale } from "../i18n/resolver.server";
 import {
   createPlaybook,
   deletePlaybook,
@@ -32,7 +36,6 @@ import {
 } from "../lib/validation.server";
 import { actionFailure, getFieldError } from "../lib/action-result";
 import { loadCapabilities } from "../models/plan-gating.server";
-import { describePlanContext } from "../billing/capabilities";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
@@ -46,11 +49,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const capabilities = await loadCapabilities(billing);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
+  const copy = getPlaybooksCopy(locale);
 
   if (!capabilities.canUseAutomation) {
-    return actionFailure(
-      "Automation playbooks are available on the Growth and Scale plans. Open Billing to upgrade.",
-    );
+    return actionFailure(copy.errorGated);
   }
 
   let formData: FormData;
@@ -74,7 +80,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (intent === "delete") {
       return await deletePlaybook(session.shop, formData);
     }
-    return actionFailure("Unknown action intent.");
+    return actionFailure(copy.errorUnknownIntent);
   } catch (error) {
     return toActionFailure(error);
   }
@@ -82,6 +88,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function PlaybooksPage() {
   const { playbooks, capabilities } = useLoaderData<typeof loader>();
+  const {
+    pages: { playbooks: p, common: c },
+  } = useI18n();
   const actionData = useActionData<typeof action>();
   const actionError =
     actionData && actionData.ok === false ? actionData.error : null;
@@ -94,9 +103,6 @@ export default function PlaybooksPage() {
   const [createAction, setCreateAction] = useState("review");
   const [isCreateActive, setIsCreateActive] = useState(true);
   const [vipBypass, setVipBypass] = useState(false);
-  // Polaris TextField is a *controlled* component — without value/onChange
-  // it silently swallows keystrokes. Track every field here so users can
-  // actually type into the "Create playbook" form.
   const [createName, setCreateName] = useState("");
   const [createMinOrderValue, setCreateMinOrderValue] = useState("");
   const [createRepeatThreshold, setCreateRepeatThreshold] = useState("");
@@ -104,10 +110,15 @@ export default function PlaybooksPage() {
   const [createDomains, setCreateDomains] = useState("");
   const [createNotes, setCreateNotes] = useState("");
 
+  const actionOptions = [
+    { label: p.actionApprove, value: "approved" },
+    { label: p.actionReview, value: "review" },
+    { label: p.actionHold, value: "hold" },
+  ];
+
   useEffect(() => {
     if (actionData && actionData.ok && actionData.toast) {
       shopify.toast.show(actionData.toast);
-      // Reset the create form once Shopify confirmed the row was saved.
       setCreateName("");
       setCreateMinOrderValue("");
       setCreateRepeatThreshold("");
@@ -122,22 +133,25 @@ export default function PlaybooksPage() {
 
   return (
     <Page
-      title="Playbooks"
-      subtitle="Automated moderation rules for returns and refund actions"
-      secondaryActions={[{ content: "Open queue", url: "/app/returns" }]}
+      title={p.title}
+      subtitle={p.subtitle}
+      secondaryActions={[{ content: c.openQueue, url: "/app/returns" }]}
     >
-      <TitleBar title="ReturnGuard playbooks" />
+      <TitleBar title={p.titleBar} />
       <BlockStack gap="500">
         {automationLocked ? (
           <Banner
-            title="Playbooks are a Growth feature"
+            title={p.gatedTitle}
             tone="warning"
-            action={{ content: "Upgrade plan", url: "/app/billing" }}
+            action={{ content: c.upgradePlan, url: "/app/billing" }}
           >
             <p>
-              {describePlanContext(capabilities)}{" "}
-              Existing playbooks are shown read-only. Upgrade to Growth or Scale
-              to create, edit, or pause automation rules.
+              {describePlanContext(
+                c,
+                capabilities.planLabel,
+                capabilities.hasActivePlan,
+              )}{" "}
+              {p.gatedBody}
             </p>
           </Banner>
         ) : null}
@@ -155,10 +169,10 @@ export default function PlaybooksPage() {
             <BlockStack gap="300">
               <input type="hidden" name="intent" value="create" />
               <Text as="h2" variant="headingMd">
-                Create playbook
+                {p.createTitle}
               </Text>
               <TextField
-                label="Playbook name"
+                label={p.fieldName}
                 name="name"
                 autoComplete="off"
                 error={nameError}
@@ -168,7 +182,7 @@ export default function PlaybooksPage() {
               />
               <BlockStack gap="100">
                 <Text as="p" variant="bodySm">
-                  Automated action
+                  {p.fieldAction}
                 </Text>
                 <select
                   name="action"
@@ -184,9 +198,11 @@ export default function PlaybooksPage() {
                     padding: "0 0.75rem",
                   }}
                 >
-                  <option value="approved">Auto approve</option>
-                  <option value="review">Auto review</option>
-                  <option value="hold">Auto hold</option>
+                  {actionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
                 {actionFieldError ? (
                   <Text as="p" variant="bodySm" tone="critical">
@@ -195,7 +211,7 @@ export default function PlaybooksPage() {
                 ) : null}
               </BlockStack>
               <TextField
-                label="Minimum order value"
+                label={p.fieldMinValue}
                 name="minOrderValue"
                 type="number"
                 autoComplete="off"
@@ -204,7 +220,7 @@ export default function PlaybooksPage() {
                 disabled={automationLocked}
               />
               <TextField
-                label="Repeat returns threshold"
+                label={p.fieldRepeatReturns}
                 name="repeatReturnsThreshold"
                 type="number"
                 autoComplete="off"
@@ -213,7 +229,7 @@ export default function PlaybooksPage() {
                 disabled={automationLocked}
               />
               <TextField
-                label="Minimum account age (days)"
+                label={p.fieldMinAccountAge}
                 name="minAccountAgeDays"
                 type="number"
                 autoComplete="off"
@@ -222,7 +238,7 @@ export default function PlaybooksPage() {
                 disabled={automationLocked}
               />
               <TextField
-                label="Suspicious email domains (comma-separated)"
+                label={p.fieldDomains}
                 name="suspiciousDomainsCsv"
                 autoComplete="off"
                 value={createDomains}
@@ -230,7 +246,7 @@ export default function PlaybooksPage() {
                 disabled={automationLocked}
               />
               <TextField
-                label="Internal notes"
+                label={p.fieldNotes}
                 name="notes"
                 autoComplete="off"
                 multiline={3}
@@ -239,12 +255,12 @@ export default function PlaybooksPage() {
                 disabled={automationLocked}
               />
               <Checkbox
-                label="Active on creation"
+                label={p.activeOnCreate}
                 checked={isCreateActive}
                 onChange={setIsCreateActive}
               />
               <Checkbox
-                label="Enable VIP bypass"
+                label={p.vipBypass}
                 checked={vipBypass}
                 onChange={setVipBypass}
               />
@@ -264,7 +280,7 @@ export default function PlaybooksPage() {
                 loading={isSubmitting}
                 disabled={automationLocked}
               >
-                Create playbook
+                {p.createSubmit}
               </Button>
             </BlockStack>
           </Form>
@@ -276,14 +292,15 @@ export default function PlaybooksPage() {
             playbook={playbook}
             isSubmitting={isSubmitting}
             automationLocked={automationLocked}
+            copy={p}
+            actionOptions={actionOptions}
           />
         ))}
 
         {!playbooks.length ? (
           <Card>
             <Text as="p" variant="bodyMd" tone="subdued">
-              No playbooks in the list yet. Use the form above to create your
-              first rule.
+              {p.empty}
             </Text>
           </Card>
         ) : null}
@@ -294,20 +311,18 @@ export default function PlaybooksPage() {
 
 type PlaybookRow = ReturnType<typeof useLoaderData<typeof loader>>["playbooks"][number];
 
-/**
- * One playbook = one editable card. We give each card its own local state
- * so Polaris's controlled TextField / Select / Checkbox components accept
- * keystrokes and so the form layout is consistent with the create-form
- * above. Each row submits a separate `intent=update` POST.
- */
 function PlaybookEditor({
   playbook,
   isSubmitting,
   automationLocked,
+  copy,
+  actionOptions,
 }: {
   playbook: PlaybookRow;
   isSubmitting: boolean;
   automationLocked: boolean;
+  copy: ReturnType<typeof useI18n>["pages"]["playbooks"];
+  actionOptions: Array<{ label: string; value: string }>;
 }) {
   const [name, setName] = useState(playbook.name);
   const [action, setAction] = useState(playbook.action);
@@ -356,7 +371,7 @@ function PlaybookEditor({
                   tone={playbook.isActive ? "success" : "warning"}
                   toneAndProgressLabelOverride=" "
                 >
-                  {playbook.isActive ? "Active" : "Paused"}
+                  {playbook.isActive ? copy.statusActive : copy.statusPaused}
                 </Badge>
               </InlineStack>
               <Button
@@ -365,13 +380,13 @@ function PlaybookEditor({
                 loading={isSubmitting}
                 disabled={automationLocked}
               >
-                Save
+                {copy.save}
               </Button>
             </InlineStack>
 
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
               <TextField
-                label="Playbook name"
+                label={copy.fieldName}
                 name="name"
                 autoComplete="off"
                 value={name}
@@ -379,19 +394,15 @@ function PlaybookEditor({
                 disabled={automationLocked}
               />
               <Select
-                label="Automated action"
+                label={copy.fieldAction}
                 name="action"
                 value={action}
                 onChange={setAction}
                 disabled={automationLocked}
-                options={[
-                  { label: "Auto approve", value: "approved" },
-                  { label: "Auto review", value: "review" },
-                  { label: "Auto hold", value: "hold" },
-                ]}
+                options={actionOptions}
               />
               <TextField
-                label="Minimum order value"
+                label={copy.fieldMinValue}
                 name="minOrderValue"
                 type="number"
                 autoComplete="off"
@@ -400,7 +411,7 @@ function PlaybookEditor({
                 disabled={automationLocked}
               />
               <TextField
-                label="Repeat returns threshold"
+                label={copy.fieldRepeatReturns}
                 name="repeatReturnsThreshold"
                 type="number"
                 autoComplete="off"
@@ -409,7 +420,7 @@ function PlaybookEditor({
                 disabled={automationLocked}
               />
               <TextField
-                label="Minimum account age (days)"
+                label={copy.fieldMinAccountAge}
                 name="minAccountAgeDays"
                 type="number"
                 autoComplete="off"
@@ -418,7 +429,7 @@ function PlaybookEditor({
                 disabled={automationLocked}
               />
               <TextField
-                label="Suspicious email domains (comma-separated)"
+                label={copy.fieldDomains}
                 name="suspiciousDomainsCsv"
                 autoComplete="off"
                 value={suspiciousDomainsCsv}
@@ -428,7 +439,7 @@ function PlaybookEditor({
             </InlineGrid>
 
             <TextField
-              label="Internal notes"
+              label={copy.fieldNotes}
               name="notes"
               autoComplete="off"
               multiline={3}
@@ -440,7 +451,7 @@ function PlaybookEditor({
             <InlineGrid columns={{ xs: 1, md: 2 }} gap="300">
               <Box paddingBlockStart="100">
                 <Checkbox
-                  label="Active"
+                  label={copy.active}
                   checked={isActive}
                   onChange={setIsActive}
                   disabled={automationLocked}
@@ -448,7 +459,7 @@ function PlaybookEditor({
               </Box>
               <Box paddingBlockStart="100">
                 <Checkbox
-                  label="Enable VIP bypass"
+                  label={copy.vipBypass}
                   checked={vipBypassEnabled}
                   onChange={setVipBypassEnabled}
                   disabled={automationLocked}
@@ -470,13 +481,13 @@ function PlaybookEditor({
               value={playbook.isActive ? "false" : "true"}
             />
             <Button submit disabled={automationLocked}>
-              {playbook.isActive ? "Pause" : "Activate"}
+              {playbook.isActive ? copy.pause : copy.activate}
             </Button>
           </Form>
           <Form
             method="post"
             onSubmit={(event) => {
-              if (!window.confirm("Delete this playbook?")) {
+              if (!window.confirm(copy.deleteConfirm)) {
                 event.preventDefault();
               }
             }}
@@ -489,7 +500,7 @@ function PlaybookEditor({
               variant="secondary"
               disabled={automationLocked}
             >
-              Delete
+              {copy.delete}
             </Button>
           </Form>
         </InlineStack>

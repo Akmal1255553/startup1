@@ -19,11 +19,11 @@ import { useEffect } from "react";
 
 import { authenticate } from "../shopify.server";
 import {
-  PLANS,
   type PlanDescriptor,
   type PlanId,
   isKnownPlanId,
 } from "../billing/plans";
+import { useI18n } from "../i18n/i18n-context";
 import {
   BILLING_TEST_MODE,
   KNOWN_PLAN_IDS,
@@ -41,7 +41,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const subscription = summarizeActiveSubscription(checkResult);
 
   return {
-    plans: PLANS,
     activePlan: subscription.activePlan,
     hasActivePayment: subscription.hasActivePayment,
     subscriptionId: subscription.subscriptionId,
@@ -194,8 +193,10 @@ function stringifyBillingErrorData(data: unknown): string | null {
 }
 
 export default function BillingPage() {
-  const { plans, activePlan, hasActivePayment, subscriptionId, isTestMode } =
+  const { activePlan, hasActivePayment, subscriptionId, isTestMode } =
     useLoaderData<typeof loader>();
+  const { pages: { billing: b, common: c } } = useI18n();
+  const plans = b.getPlans();
   const actionData = useActionData<typeof action>();
   const shopify = useAppBridge();
   const navigation = useNavigation();
@@ -222,27 +223,26 @@ export default function BillingPage() {
 
   useEffect(() => {
     if (cancelled) {
-      shopify.toast.show("Subscription cancelled");
+      shopify.toast.show(b.toastCancelled);
     }
   }, [cancelled, shopify.toast]);
 
   return (
     <Page
-      title="Billing"
-      subtitle="Core return-risk tools are free forever — upgrade when you need automation or higher limits"
-      backAction={{ content: "Dashboard", url: "/app" }}
+      title={b.title}
+      subtitle={b.subtitle}
+      backAction={{ content: c.backDashboard, url: "/app" }}
     >
-      <TitleBar title="Billing" />
+      <TitleBar title={b.title} />
       <BlockStack gap="500">
         {isTestMode ? (
           <Card>
             <InlineStack gap="200" blockAlign="center">
               <Badge tone="info" toneAndProgressLabelOverride=" ">
-                Test mode
+                {b.testModeBadge}
               </Badge>
               <Text as="p" variant="bodyMd" tone="subdued">
-                Development environment — Shopify Billing is running in test
-                mode and will not charge merchants.
+                {b.testModeBody}
               </Text>
             </InlineStack>
           </Card>
@@ -264,14 +264,10 @@ export default function BillingPage() {
         />
 
         {!hasActivePayment ? (
-          <Banner tone="info" title="Free plan includes the essentials">
+          <Banner tone="info" title={b.freeBannerTitle}>
             <BlockStack gap="200">
               <Text as="p" variant="bodyMd">
-                Use risk scoring, the returns queue, moderation decisions, CSV
-                export, and saving thresholds at no charge. Paid plans add
-                larger queue pages, automation playbooks, bulk actions, audit
-                log, and longer analytics history — with a 21-day trial on
-                every subscription.
+                {b.freeBannerBody}
               </Text>
             </BlockStack>
           </Banner>
@@ -305,8 +301,9 @@ function CurrentPlanCard({
   subscriptionId: string | null;
   isSubmitting: boolean;
 }) {
+  const { pages: { billing: b } } = useI18n();
   const planDescriptor = activePlan
-    ? PLANS.find((plan) => plan.id === activePlan)
+    ? b.getPlans().find((plan) => plan.id === activePlan)
     : null;
 
   return (
@@ -315,21 +312,21 @@ function CurrentPlanCard({
         <InlineStack align="space-between" blockAlign="center">
           <BlockStack gap="100">
             <Text as="h2" variant="headingMd">
-              Current subscription
+              {b.currentTitle}
             </Text>
             <Text as="p" variant="bodyMd" tone="subdued">
               {hasActivePayment && planDescriptor
-                ? `${planDescriptor.name} — $${planDescriptor.monthlyPrice}/month`
-                : "No active subscription — you're on the Free plan with core features unlocked."}
+                ? b.activePlan(planDescriptor.name, planDescriptor.monthlyPrice)
+                : b.freePlan}
             </Text>
           </BlockStack>
           {hasActivePayment ? (
             <Badge tone="success" toneAndProgressLabelOverride=" ">
-              Active
+              {b.badgeActive}
             </Badge>
           ) : (
             <Badge tone="info" toneAndProgressLabelOverride=" ">
-              Free
+              {b.badgeFree}
             </Badge>
           )}
         </InlineStack>
@@ -338,7 +335,7 @@ function CurrentPlanCard({
           <Form
             method="post"
             onSubmit={(event) => {
-              if (!window.confirm("Cancel current subscription?")) {
+              if (!window.confirm(b.cancelConfirm)) {
                 event.preventDefault();
               }
             }}
@@ -355,7 +352,7 @@ function CurrentPlanCard({
               variant="tertiary"
               loading={isSubmitting}
             >
-              Cancel subscription
+              {b.cancel}
             </Button>
           </Form>
         ) : null}
@@ -456,6 +453,7 @@ function PlanCard({
   isSubmitting: boolean;
   pendingPlan: string | null;
 }) {
+  const { pages: { billing: b } } = useI18n();
   const isCurrent = hasActivePayment && plan.id === activePlan;
   const isPending = pendingPlan === plan.id;
   // While one card is being submitted, freeze the other cards so the
@@ -463,10 +461,10 @@ function PlanCard({
   const isFrozen = isSubmitting && !isPending;
 
   const buttonLabel = isPending
-    ? "Confirming…"
+    ? b.btnConfirming
     : hasActivePayment
-      ? "Switch to this plan"
-      : "Start 21-day trial";
+      ? b.btnSwitch
+      : b.btnTrial;
 
   return (
     <Card
@@ -480,15 +478,15 @@ function PlanCard({
           <InlineStack gap="100">
             {isCurrent ? (
               <Badge tone="success" toneAndProgressLabelOverride=" ">
-                Current plan
+                {b.badgeCurrent}
               </Badge>
             ) : isPending ? (
               <Badge tone="info" toneAndProgressLabelOverride=" ">
-                Selecting…
+                {b.badgeSelecting}
               </Badge>
             ) : plan.recommended ? (
               <Badge tone="success" toneAndProgressLabelOverride=" ">
-                Recommended
+                {b.badgeRecommended}
               </Badge>
             ) : null}
           </InlineStack>
@@ -503,12 +501,12 @@ function PlanCard({
             ${plan.monthlyPrice}
           </Text>
           <Text as="span" variant="bodySm" tone="subdued">
-            / month
+            {b.perMonth}
           </Text>
         </InlineStack>
 
         <Text as="span" variant="bodySm" tone="subdued">
-          {plan.trialDays}-day free trial
+          {b.trialDays(plan.trialDays)}
         </Text>
 
         <Box paddingBlockStart="200">
@@ -522,7 +520,7 @@ function PlanCard({
         <Box paddingBlockStart="300">
           {isCurrent ? (
             <Button disabled fullWidth>
-              Current plan
+              {b.btnCurrent}
             </Button>
           ) : (
             <Form method="post">

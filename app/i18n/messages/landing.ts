@@ -16,12 +16,11 @@ export type LandingCopy = {
   heroEyebrow: string;
   heroTitle: string;
   heroLede: string;
-  btnOpenDev: string;
   btnSeeInterface: string;
   installDisabled: string;
   labelStoreDomain: string;
   placeholderShop: string;
-  btnOtherStore: string;
+  btnInstall: string;
   chipEmbedded: string;
   chipQueue: string;
   chipAudit: string;
@@ -45,7 +44,7 @@ export type LandingCopy = {
   steps: LandingStep[];
   ctaTitle: string;
   ctaLead: string;
-  btnInstallDev: string;
+  btnInstallCta: string;
   btnExplore: string;
   footerPrivacy: string;
   footerSupport: string;
@@ -68,12 +67,11 @@ const enLanding: LandingCopy = {
   heroTitle: "Control refund risk before it hits your margin.",
   heroLede:
     "ReturnGuard AI brings return requests into a single review surface—scored, explainable, and auditable—so finance and support stay aligned without leaving Shopify Admin.",
-  btnOpenDev: "Open dev store",
   btnSeeInterface: "See interface",
   installDisabled: "Install flow is disabled in this environment.",
   labelStoreDomain: "Store domain",
   placeholderShop: "your-store.myshopify.com",
-  btnOtherStore: "Use another store",
+  btnInstall: "Install app",
   chipEmbedded: "Embedded app",
   chipQueue: "Return-level queue",
   chipAudit: "Audit-friendly history",
@@ -146,7 +144,7 @@ const enLanding: LandingCopy = {
   ctaTitle: "Ready to tighten your return posture?",
   ctaLead:
     "Start on a development store, validate your playbook, then roll out to production when your team is aligned.",
-  btnInstallDev: "Install on dev store",
+  btnInstallCta: "Install on Shopify",
   btnExplore: "Explore capabilities",
   footerPrivacy: "Privacy",
   footerSupport: "Support",
@@ -182,12 +180,11 @@ const ruLanding: LandingCopy = {
   heroTitle: "Управляйте риском возвратов до удара по марже.",
   heroLede:
     "ReturnGuard AI собирает заявки на возврат в одну панель — со скорингом, объяснимыми причинами и аудитом — чтобы финансы и поддержка работали согласованно, не выходя из админки Shopify.",
-  btnOpenDev: "Открыть dev-магазин",
   btnSeeInterface: "Смотреть интерфейс",
   installDisabled: "Установка отключена в этой среде.",
   labelStoreDomain: "Домен магазина",
   placeholderShop: "ваш-магазин.myshopify.com",
-  btnOtherStore: "Другой магазин",
+  btnInstall: "Установить приложение",
   chipEmbedded: "Встроенное приложение",
   chipQueue: "Очередь по возвратам",
   chipAudit: "История для аудита",
@@ -260,7 +257,7 @@ const ruLanding: LandingCopy = {
   ctaTitle: "Ужесточить контроль возвратов?",
   ctaLead:
     "Начните с dev-магазина, проверьте сценарии, затем выкатывайте в прод, когда команда готова.",
-  btnInstallDev: "Установить на dev",
+  btnInstallCta: "Установить в Shopify",
   btnExplore: "Возможности продукта",
   footerPrivacy: "Конфиденциальность",
   footerSupport: "Поддержка",

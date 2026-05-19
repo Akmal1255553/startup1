@@ -1,3 +1,6 @@
+import { decisionLabel, getAppCommonCopy } from "../i18n/messages/app/common";
+import type { Locale } from "../i18n/types";
+
 export type RiskSettings = {
   mediumValueThreshold: number;
   highValueThreshold: number;
@@ -84,10 +87,8 @@ export type DashboardData = {
   needsProtectedDataAccess: boolean;
 };
 
-export function getDecisionLabel(decision: string) {
-  if (decision === "approved") return "Approved";
-  if (decision === "hold") return "Refund held";
-  return "Needs review";
+export function getDecisionLabel(decision: string, locale: Locale = "en") {
+  return decisionLabel(getAppCommonCopy(locale), decision);
 }
 
 export function getDecisionTone(decision: string) {
