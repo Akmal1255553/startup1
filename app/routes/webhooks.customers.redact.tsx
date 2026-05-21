@@ -1,6 +1,9 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 
-import { authenticate } from "../shopify.server";
+import {
+  authenticateWebhookOrResponse,
+  isWebhookAuthResponse,
+} from "../lib/shopify-webhook.server";
 import {
   recordWebhookEvent,
   redactCustomerData,
@@ -13,7 +16,9 @@ import {
  * tables that can contain customer-derived data in our schema.
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic, payload } = await authenticate.webhook(request);
+  const auth = await authenticateWebhookOrResponse(request);
+  if (isWebhookAuthResponse(auth)) return auth;
+  const { shop, topic, payload } = auth;
   const typed = payload as {
     customer?: { id?: string | number };
     orders_to_redact?: Array<string | number>;

@@ -1,6 +1,9 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 
-import { authenticate } from "../shopify.server";
+import {
+  authenticateWebhookOrResponse,
+  isWebhookAuthResponse,
+} from "../lib/shopify-webhook.server";
 import {
   recordWebhookEvent,
   redactShop,
@@ -15,7 +18,9 @@ import {
  * cleared.
  */
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic, payload } = await authenticate.webhook(request);
+  const auth = await authenticateWebhookOrResponse(request);
+  if (isWebhookAuthResponse(auth)) return auth;
+  const { shop, topic, payload } = auth;
   const typed = payload as { shop_id?: string | number };
   const shopifyId =
     typed.shop_id !== undefined ? String(typed.shop_id) : null;

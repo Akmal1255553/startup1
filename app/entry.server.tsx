@@ -3,12 +3,25 @@ import { renderToPipeableStream } from "react-dom/server";
 import { RemixServer } from "@remix-run/react";
 import {
   createReadableStreamFromReadable,
+  type ActionFunctionArgs,
   type EntryContext,
+  type LoaderFunctionArgs,
 } from "@remix-run/node";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
 
 export const streamTimeout = 5000;
+
+/** Preserve thrown Response statuses (e.g. webhook 401) instead of turning into 500. */
+export function handleError(
+  error: unknown,
+  _args: LoaderFunctionArgs | ActionFunctionArgs,
+): Response | unknown {
+  if (error instanceof Response) {
+    return error;
+  }
+  return error;
+}
 
 export default async function handleRequest(
   request: Request,

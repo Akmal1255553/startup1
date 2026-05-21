@@ -15,6 +15,12 @@ import { authenticate } from "./shopify.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
+
+  // Webhooks: skip session/DB locale work so HMAC failures return 401 quickly.
+  if (url.pathname.startsWith("/webhooks")) {
+    return json({ locale: "en" as const });
+  }
+
   let authenticatedShop: string | undefined;
   let sessionLocale: string | null | undefined;
 
