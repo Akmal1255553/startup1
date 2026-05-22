@@ -60,7 +60,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { ok: false, error: "Unknown plan." };
     }
 
-    const returnUrl = buildBillingReturnUrl(request, session.shop);
+    const apiKey = process.env.SHOPIFY_API_KEY || "";
+    const returnUrl = buildBillingReturnUrl(session.shop, apiKey);
 
     try {
       // billing.request always throws a Remix redirect / App Bridge response,

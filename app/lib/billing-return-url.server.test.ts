@@ -3,23 +3,18 @@ import { describe, expect, it } from "vitest";
 import { buildBillingReturnUrl } from "./billing-return-url.server";
 
 describe("buildBillingReturnUrl", () => {
-  it("includes shop, host, and embedded for embedded billing return", () => {
-    const request = new Request(
-      "https://startup1-bu7t.onrender.com/app/billing?shop=test.myshopify.com&host=abc123&embedded=1",
+  it("returns Shopify Admin embedded app URL (not the app origin)", () => {
+    const url = buildBillingReturnUrl(
+      "store-fbugaeho.myshopify.com",
+      "0b558248ba23abd6861a0a76702f8325",
     );
-    const url = new URL(buildBillingReturnUrl(request, "test.myshopify.com"));
-    expect(url.pathname).toBe("/app/billing");
-    expect(url.searchParams.get("shop")).toBe("test.myshopify.com");
-    expect(url.searchParams.get("host")).toBe("abc123");
-    expect(url.searchParams.get("embedded")).toBe("1");
+    expect(url).toBe(
+      "https://admin.shopify.com/store/store-fbugaeho/apps/0b558248ba23abd6861a0a76702f8325",
+    );
   });
 
-  it("includes shop only when host is absent", () => {
-    const request = new Request(
-      "https://startup1-bu7t.onrender.com/app/billing?shop=test.myshopify.com",
-    );
-    const url = new URL(buildBillingReturnUrl(request, "test.myshopify.com"));
-    expect(url.searchParams.get("shop")).toBe("test.myshopify.com");
-    expect(url.searchParams.has("host")).toBe(false);
+  it("strips .myshopify.com for the store handle", () => {
+    const url = buildBillingReturnUrl("test.myshopify.com", "abc");
+    expect(url).toBe("https://admin.shopify.com/store/test/apps/abc");
   });
 });
