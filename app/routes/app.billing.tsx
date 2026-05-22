@@ -17,6 +17,7 @@ import {
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
 import { useEffect } from "react";
 
+import { buildBillingReturnUrl } from "../lib/billing-return-url.server";
 import { authenticate } from "../shopify.server";
 import {
   type PlanDescriptor,
@@ -59,8 +60,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { ok: false, error: "Unknown plan." };
     }
 
-    const url = new URL(request.url);
-    const returnUrl = `${url.origin}/app/billing?shop=${encodeURIComponent(session.shop)}`;
+    const returnUrl = buildBillingReturnUrl(request, session.shop);
 
     try {
       // billing.request always throws a Remix redirect / App Bridge response,
