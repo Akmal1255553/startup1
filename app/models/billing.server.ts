@@ -36,6 +36,64 @@ export const BILLING_TEST_MODE = resolveBillingTestMode();
 
 export const KNOWN_PLAN_IDS: PlanId[] = [PLAN_STARTER, PLAN_GROWTH, PLAN_SCALE];
 
+type ShopPlanSnapshot = {
+  partnerDevelopment?: boolean;
+  displayName?: string | null;
+} | null | undefined;
+
+/** True for Partner dev stores and similar — they must use test charges only. */
+export function isDevelopmentShopPlan(plan: ShopPlanSnapshot): boolean {
+  if (!plan) return false;
+  if (plan.partnerDevelopment) return true;
+  const name = (plan.displayName ?? "").toLowerCase();
+  return (
+    name.includes("development") ||
+    name.includes("developer preview") ||
+    name === "affiliate" ||
+    name.includes("partner test")
+  );
+}
+
+type BillingAdminGraphql = {
+  graphql: (
+    query: string,
+    options?: { variables?: Record<string, unknown> },
+  ) => Promise<Response>;
+};
+
+/**
+ * Dev stores always get test charges; live stores follow BILLING_TEST on Render.
+ */
+export async function resolveBillingIsTestForShop(
+  admin: BillingAdminGraphql,
+): Promise<boolean> {
+  try {
+    const response = await admin.graphql(`#graphql
+      query BillingShopPlan {
+        shop {
+          plan {
+            partnerDevelopment
+            displayName
+          }
+        }
+      }
+    `);
+    const json = (await response.json()) as {
+      data?: {
+        shop?: {
+          plan?: { partnerDevelopment?: boolean; displayName?: string };
+        };
+      };
+    };
+    if (isDevelopmentShopPlan(json.data?.shop?.plan)) {
+      return true;
+    }
+  } catch {
+    // Use env default when plan lookup fails.
+  }
+  return BILLING_TEST_MODE;
+}
+
 /**
  * Local structural type for a recurring subscription plan that matches
  * @shopify/shopify-api's `BillingConfigSubscriptionLineItemPlan`.

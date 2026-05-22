@@ -1,7 +1,36 @@
 import { describe, expect, it } from "vitest";
 
 import { PLAN_GROWTH, PLAN_STARTER } from "../billing/plans";
-import { summarizeActiveSubscription } from "./billing.server";
+import {
+  isDevelopmentShopPlan,
+  summarizeActiveSubscription,
+} from "./billing.server";
+
+describe("isDevelopmentShopPlan", () => {
+  it("returns true for partnerDevelopment shops", () => {
+    expect(
+      isDevelopmentShopPlan({ partnerDevelopment: true, displayName: "Basic" }),
+    ).toBe(true);
+  });
+
+  it("returns true for Developer Preview display name", () => {
+    expect(
+      isDevelopmentShopPlan({
+        partnerDevelopment: false,
+        displayName: "Developer Preview",
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a typical live shop plan", () => {
+    expect(
+      isDevelopmentShopPlan({
+        partnerDevelopment: false,
+        displayName: "Basic",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("summarizeActiveSubscription", () => {
   it("returns inactive summary when Shopify reports no active payment", () => {

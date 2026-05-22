@@ -26,17 +26,18 @@ import {
 } from "../billing/plans";
 import { useI18n } from "../i18n/i18n-context";
 import {
-  BILLING_TEST_MODE,
   KNOWN_PLAN_IDS,
+  resolveBillingIsTestForShop,
   summarizeActiveSubscription,
 } from "../models/billing.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, admin } = await authenticate.admin(request);
+  const isTest = await resolveBillingIsTestForShop(admin);
 
   const checkResult = await billing.check({
     plans: KNOWN_PLAN_IDS,
-    isTest: BILLING_TEST_MODE,
+    isTest,
   });
 
   const subscription = summarizeActiveSubscription(checkResult);
@@ -45,12 +46,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     activePlan: subscription.activePlan,
     hasActivePayment: subscription.hasActivePayment,
     subscriptionId: subscription.subscriptionId,
-    isTestMode: BILLING_TEST_MODE,
+    isTestMode: isTest,
   };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing, session } = await authenticate.admin(request);
+  const { billing, session, admin } = await authenticate.admin(request);
+  const isTest = await resolveBillingIsTestForShop(admin);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
 
@@ -68,7 +70,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // never resolves — do not convert that throw into JSON or the button looks “dead”.
       await billing.request({
         plan: requestedPlan,
-        isTest: BILLING_TEST_MODE,
+        isTest,
         returnUrl,
       });
     } catch (error) {
@@ -96,7 +98,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await billing.cancel({
         subscriptionId,
-        isTest: BILLING_TEST_MODE,
+        isTest,
         prorate: true,
       });
       return { ok: true, cancelled: true };
@@ -124,7 +126,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
  *    isTest=false.
  *  - `generic`             → anything else, with errorData appended.
  */
-type BillingErrorKind = "public-distribution" | "test-mismatch" | "generic";
+type BillingErrorKind =
+  | "public-distribution"
+  | "test-mismatch"
+  | "store-cannot-accept"
+  | "generic";
 type BillingErrorPayload = {
   kind: BillingErrorKind;
   message: string;
@@ -160,6 +166,19 @@ function formatBillingError(
       kind: "test-mismatch",
       message: detail
         ? `${error.message} (${planId}): ${detail}. Set BILLING_TEST=true on Render if you're on a development store, or BILLING_TEST=false on a live store.`
+        : `${error.message} (${planId}).`,
+      detail,
+    };
+  }
+  if (
+    /cannot accept|can't accept|provided charge|specified amount|не может принять/i.test(
+      merged,
+    )
+  ) {
+    return {
+      kind: "store-cannot-accept",
+      message: detail
+        ? `${error.message} (${planId}): ${detail}.`
         : `${error.message} (${planId}).`,
       detail,
     };
@@ -428,6 +447,36 @@ function BillingErrorBanner({
         <Text as="p" variant="bodyMd">
           {message}
         </Text>
+      </Banner>
+    );
+  }
+
+  if (kind === "store-cannot-accept") {
+    return (
+      <Banner title="This store cannot accept this charge" tone="warning">
+        <BlockStack gap="200">
+          <Text as="p" variant="bodyMd">
+            Shopify blocked the subscription. Common causes:
+          </Text>
+          <List type="bullet" gap="extraTight">
+            <List.Item>
+              <strong>Development store</strong> — use a Partner dev store on Basic
+              plan; test charges are applied automatically.
+            </List.Item>
+            <List.Item>
+              <strong>Live store on Shopify Trial</strong> — the merchant must pick a
+              paid Shopify plan and add a billing method in Settings → Plan before
+              approving app charges.
+            </List.Item>
+            <List.Item>
+              <strong>Pricing in Partners</strong> — plan handles and amounts must
+              match Starter $9, Growth $29, Scale $79 (21-day trial).
+            </List.Item>
+          </List>
+          <Text as="p" variant="bodySm" tone="subdued">
+            {message}
+          </Text>
+        </BlockStack>
       </Banner>
     );
   }
