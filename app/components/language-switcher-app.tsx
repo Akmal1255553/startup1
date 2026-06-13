@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { useLocation } from "@remix-run/react";
+import { useCallback, useEffect, useState } from "react";
+import { useFetcher, useLocation, useRevalidator } from "@remix-run/react";
 import {
   ActionList,
   Box,
@@ -12,26 +12,36 @@ import {
 import { useI18n } from "../i18n/i18n-context";
 import { LOCALE_LABELS, SUPPORTED_LOCALES } from "../i18n/types";
 
+type SetLocaleResponse = { ok: true; locale: string } | { ok: false };
+
 export function LanguageSwitcherApp() {
   const { locale, app } = useI18n();
   const location = useLocation();
+  const fetcher = useFetcher<SetLocaleResponse>();
+  const revalidator = useRevalidator();
   const [open, setOpen] = useState(false);
-  const redirect = encodeURIComponent(
-    `${location.pathname}${location.search}`,
-  );
+  const isSaving = fetcher.state !== "idle";
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
+      revalidator.revalidate();
+    }
+  }, [fetcher.state, fetcher.data, revalidator]);
 
   const go = useCallback(
     (lng: string) => {
       setOpen(false);
       const params = new URLSearchParams(location.search);
+      const formData = new FormData();
+      formData.set("lng", lng);
+      formData.set("redirect", `${location.pathname}${location.search}`);
       const shop = params.get("shop");
-      let href = `/set-locale?lng=${encodeURIComponent(lng)}&redirect=${redirect}`;
       if (shop) {
-        href += `&shop=${encodeURIComponent(shop)}`;
+        formData.set("shop", shop);
       }
-      window.location.assign(href);
+      fetcher.submit(formData, { method: "post", action: "/set-locale" });
     },
-    [redirect, location.search],
+    [fetcher, location.pathname, location.search],
   );
 
   const activator = (
@@ -39,6 +49,7 @@ export function LanguageSwitcherApp() {
       disclosure="down"
       variant="secondary"
       size="slim"
+      loading={isSaving}
       onClick={() => setOpen((o) => !o)}
       accessibilityLabel={app.langLabel}
     >
@@ -67,6 +78,7 @@ export function LanguageSwitcherApp() {
               items={SUPPORTED_LOCALES.map((id) => ({
                 content: LOCALE_LABELS[id],
                 active: id === locale,
+                disabled: isSaving,
                 onAction: () => go(id),
               }))}
             />

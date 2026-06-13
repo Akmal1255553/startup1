@@ -29,14 +29,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const [settings, capabilities] = await Promise.all([
     getRiskSettings(session.shop),
-    loadCapabilities(billing),
+    loadCapabilities(billing, session.shop),
   ]);
   return { settings, capabilities };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop);
   if (!capabilities.canSaveSettings) {
     return {
       ok: false as const,

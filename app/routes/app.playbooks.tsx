@@ -41,14 +41,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
   const [playbooks, capabilities] = await Promise.all([
     listPlaybooks(session.shop),
-    loadCapabilities(billing),
+    loadCapabilities(billing, session.shop),
   ]);
   return { playbooks, capabilities };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing } = await authenticate.admin(request);
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop);
   const locale = await resolveLocale(request, {
     authenticatedShop: session.shop,
     sessionLocale: session.locale ?? null,

@@ -5,6 +5,10 @@ import { getAnalyticsCopy, type AnalyticsCopy } from "./analytics";
 import { getBillingCopy, type BillingCopy } from "./billing";
 import { getOnboardingCopy, type OnboardingCopy } from "./onboarding";
 import { getPlaybooksCopy, type PlaybooksCopy } from "./playbooks";
+import {
+  getProductIntelligenceCopy,
+  type ProductIntelligenceCopy,
+} from "./product-intelligence";
 import { getReturnsCopy, type ReturnsCopy } from "./returns";
 import { getSettingsCopy, type SettingsCopy } from "./settings";
 
@@ -12,6 +16,7 @@ export type AppPagesMessages = {
   common: AppCommonCopy;
   returns: ReturnsCopy;
   analytics: AnalyticsCopy;
+  productIntelligence: ProductIntelligenceCopy;
   settings: SettingsCopy;
   billing: BillingCopy;
   onboarding: OnboardingCopy;
@@ -24,6 +29,7 @@ export function getAppPagesMessages(locale: Locale): AppPagesMessages {
     common: getAppCommonCopy(locale),
     returns: getReturnsCopy(locale),
     analytics: getAnalyticsCopy(locale),
+    productIntelligence: getProductIntelligenceCopy(locale),
     settings: getSettingsCopy(locale),
     billing: getBillingCopy(locale),
     onboarding: getOnboardingCopy(locale),

@@ -1,21 +1,24 @@
 /**
  * Server-side bridge between Shopify Billing and our capability descriptors.
  *
- * Use `loadCapabilities(billing)` from any loader/action that already calls
+ * Use `loadCapabilities(billing, shop)` from any loader/action that already calls
  * `authenticate.admin(request)`, so we don't authenticate twice. The result
  * is meant to be:
  *   - returned to the UI (to disable/hide gated controls), and
  *   - checked in mutations to reject calls a plan shouldn't be able to make.
  */
 import {
+  FREE,
   getCapabilities,
   type PlanCapabilities,
 } from "../billing/capabilities";
 import { authenticate } from "../shopify.server";
 import {
   BILLING_TEST_MODE,
-  KNOWN_PLAN_IDS,
-  summarizeActiveSubscription,
+  checkActiveSubscription,
+  getCachedBillingIsTest,
+  resolveBillingIsTestForShop,
+  type BillingAdminGraphql,
 } from "./billing.server";
 
 type AdminBilling = Awaited<
@@ -24,13 +27,23 @@ type AdminBilling = Awaited<
 
 export async function loadCapabilities(
   billing: AdminBilling,
+  shop: string,
+  admin?: BillingAdminGraphql,
 ): Promise<PlanCapabilities> {
-  const result = await billing.check({
-    plans: KNOWN_PLAN_IDS,
-    isTest: BILLING_TEST_MODE,
-  });
-  const summary = summarizeActiveSubscription(result);
-  return getCapabilities(summary.activePlan, summary.hasActivePayment);
+  let isTest = getCachedBillingIsTest(shop);
+  if (isTest === undefined) {
+    isTest = admin
+      ? await resolveBillingIsTestForShop(admin, shop)
+      : BILLING_TEST_MODE;
+  }
+
+  try {
+    const summary = await checkActiveSubscription(billing, { shop, isTest });
+    return getCapabilities(summary.activePlan, summary.hasActivePayment);
+  } catch (error) {
+    console.error("[ReturnGuard] billing.check failed — using Free tier", error);
+    return FREE;
+  }
 }
 
 /**

@@ -39,8 +39,8 @@ import { loadCapabilities } from "../models/plan-gating.server";
 import { actionFailure } from "../lib/action-result";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
-  const capabilities = await loadCapabilities(billing);
+  const { session, billing, admin } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
   const url = new URL(request.url);
 
   if (!capabilities.canUseAuditLog) {
@@ -68,8 +68,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
-  const capabilities = await loadCapabilities(billing);
+  const { session, billing, admin } = await authenticate.admin(request);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
   const locale = await resolveLocale(request, {
     authenticatedShop: session.shop,
     sessionLocale: session.locale ?? null,

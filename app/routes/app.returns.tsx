@@ -64,7 +64,7 @@ import { useCsvExport } from "../hooks/use-csv-export";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing } = await authenticate.admin(request);
   const locale = await resolveLocale(request);
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
   const url = new URL(request.url);
   const requestedPageSize = Number(url.searchParams.get("pageSize")) || null;
   const clampedPageSize = requestedPageSize
@@ -89,10 +89,10 @@ function parseDirection(
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const locale = await resolveLocale(request);
   const copy = getReturnsCopy(locale);
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
   let formData: FormData;
   try {
     formData = await readSafeFormData(request);

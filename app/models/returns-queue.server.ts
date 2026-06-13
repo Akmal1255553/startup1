@@ -2,7 +2,7 @@ import prisma from "../db.server";
 import { getReturnsCopy } from "../i18n/messages/app/returns";
 import type { Locale } from "../i18n/types";
 import type { DashboardData, RiskSettings } from "./return-risk";
-import { getRiskSettings } from "./return-risk.server";
+import { defaultRiskSettings, getRiskSettings } from "./return-risk.server";
 import {
   buildRiskOrders,
   mergeSavedDecisionsOntoRiskOrders,
@@ -204,13 +204,13 @@ export async function loadReturnsQueuePage(
   locale: Locale = "en",
 ): Promise<ReturnsQueuePage> {
   const queueCopy = getReturnsCopy(locale);
-  const settings = await getRiskSettings(shop);
   const pageSize = clampPageSize(params.pageSize);
   const searchQuery = sanitizeSearchQuery(params.query);
   const queryString = buildReturnsQueueShopifyQuery(searchQuery);
   const variables = buildVariables(params, pageSize, queryString);
 
   try {
+    const settings = await getRiskSettings(shop);
     const payload = await loadReturnsQueuePageWithFallback(admin, variables);
 
     if (payload.errors?.length) {
@@ -369,11 +369,18 @@ export async function loadReturnsQueuePage(
       hasExpandedReturns,
     };
   } catch (error) {
+    console.error("[ReturnGuard] loadReturnsQueuePage failed", error);
+    let settings = defaultRiskSettings;
+    try {
+      settings = await getRiskSettings(shop);
+    } catch {
+      // Keep defaults when DB is temporarily unavailable.
+    }
     return buildEmptyPage(settings, {
       error:
         error instanceof Error
           ? error.message
-          : "Unable to load Shopify returns.",
+          : "Unable to load returns. Please refresh.",
       needsProtectedDataAccess: false,
       searchQuery,
       pageSize,

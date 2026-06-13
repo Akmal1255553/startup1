@@ -7,6 +7,7 @@ import type {
 import { json, redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 
+import { marketingHeaders } from "../../lib/marketing-headers.server";
 import { LanguageSwitcherMarketing } from "../../components/language-switcher-marketing";
 import { useI18n } from "../../i18n/i18n-context";
 import { getLandingCopy } from "../../i18n/messages/landing";
@@ -38,10 +39,7 @@ export const links: LinksFunction = () => [
   },
 ];
 
-export const headers: HeadersFunction = () => ({
-  // Avoid stale HTML on CDNs after deploys (language UI lives in document markup).
-  "Cache-Control": "public, max-age=0, s-maxage=120, must-revalidate",
-});
+export const headers = marketingHeaders;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);

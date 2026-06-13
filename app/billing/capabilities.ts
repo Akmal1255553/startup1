@@ -33,7 +33,7 @@ export type PlanCapabilities = {
  * paid plans differentiate on limits, automation, audit log, bulk, and
  * analytics depth.
  */
-const FREE: PlanCapabilities = {
+export const FREE: PlanCapabilities = {
   planId: null,
   planLabel: "Free",
   hasActivePlan: false,

@@ -38,7 +38,7 @@ type ShopifyAdmin = {
 
 const ORDERS_QUERY = `#graphql
   query ReturnGuardRecentOrders {
-    orders(first: 50, query: "status:any", sortKey: CREATED_AT, reverse: true) {
+    orders(first: 25, query: "status:any", sortKey: CREATED_AT, reverse: true) {
       nodes {
         id
         name
@@ -63,7 +63,7 @@ const ORDERS_QUERY = `#graphql
 
 const ORDERS_FALLBACK_QUERY = `#graphql
   query ReturnGuardRecentOrdersFallback {
-    orders(first: 50, query: "status:any", sortKey: CREATED_AT, reverse: true) {
+    orders(first: 25, query: "status:any", sortKey: CREATED_AT, reverse: true) {
       nodes {
         id
         name
@@ -89,7 +89,7 @@ const ORDER_COUNT_QUERY = `#graphql
   }
 `;
 
-const defaultSettings: RiskSettings = {
+export const defaultRiskSettings: RiskSettings = {
   mediumValueThreshold: 100,
   highValueThreshold: 250,
   reviewRiskThreshold: 60,
@@ -322,9 +322,8 @@ export async function loadReturnRiskData(
   shop: string,
   locale: Locale = "en",
 ): Promise<DashboardData> {
-  const settings = await getRiskSettings(shop);
-
   try {
+    const settings = await getRiskSettings(shop);
     const payload = await loadOrdersWithFallback(admin);
 
     if (payload.errors?.length) {
@@ -395,10 +394,19 @@ export async function loadReturnRiskData(
       })),
     });
   } catch (error) {
+    console.error("[ReturnGuard] loadReturnRiskData failed", error);
+    let settings = defaultRiskSettings;
+    try {
+      settings = await getRiskSettings(shop);
+    } catch {
+      // Keep defaults when the DB is temporarily unavailable.
+    }
     return buildDashboardData(
       [],
       settings,
-      error instanceof Error ? error.message : "Unable to load Shopify orders",
+      error instanceof Error
+        ? error.message
+        : "Unable to load dashboard data. Please refresh.",
     );
   }
 }
@@ -458,47 +466,47 @@ function parseSettings(formData: FormData): RiskSettings {
     mediumValueThreshold: readInt(
       formData,
       "mediumValueThreshold",
-      defaultSettings.mediumValueThreshold,
+      defaultRiskSettings.mediumValueThreshold,
     ),
     highValueThreshold: readInt(
       formData,
       "highValueThreshold",
-      defaultSettings.highValueThreshold,
+      defaultRiskSettings.highValueThreshold,
     ),
     reviewRiskThreshold: readInt(
       formData,
       "reviewRiskThreshold",
-      defaultSettings.reviewRiskThreshold,
+      defaultRiskSettings.reviewRiskThreshold,
     ),
     holdRiskThreshold: readInt(
       formData,
       "holdRiskThreshold",
-      defaultSettings.holdRiskThreshold,
+      defaultRiskSettings.holdRiskThreshold,
     ),
     newCustomerRiskDelta: readInt(
       formData,
       "newCustomerRiskDelta",
-      defaultSettings.newCustomerRiskDelta,
+      defaultRiskSettings.newCustomerRiskDelta,
     ),
     repeatCustomerRiskDelta: readInt(
       formData,
       "repeatCustomerRiskDelta",
-      defaultSettings.repeatCustomerRiskDelta,
+      defaultRiskSettings.repeatCustomerRiskDelta,
     ),
     unfulfilledRiskDelta: readInt(
       formData,
       "unfulfilledRiskDelta",
-      defaultSettings.unfulfilledRiskDelta,
+      defaultRiskSettings.unfulfilledRiskDelta,
     ),
     paymentReviewRiskDelta: readInt(
       formData,
       "paymentReviewRiskDelta",
-      defaultSettings.paymentReviewRiskDelta,
+      defaultRiskSettings.paymentReviewRiskDelta,
     ),
     protectedMarginMultiplier: readNumber(
       formData,
       "protectedMarginMultiplier",
-      defaultSettings.protectedMarginMultiplier,
+      defaultRiskSettings.protectedMarginMultiplier,
     ),
   };
 }

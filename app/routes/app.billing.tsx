@@ -26,33 +26,41 @@ import {
 } from "../billing/plans";
 import { useI18n } from "../i18n/i18n-context";
 import {
-  KNOWN_PLAN_IDS,
+  checkActiveSubscription,
   resolveBillingIsTestForShop,
-  summarizeActiveSubscription,
 } from "../models/billing.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing, admin } = await authenticate.admin(request);
-  const isTest = await resolveBillingIsTestForShop(admin);
+  const { billing, admin, session } = await authenticate.admin(request);
+  const isTest = await resolveBillingIsTestForShop(admin, session.shop);
 
-  const checkResult = await billing.check({
-    plans: KNOWN_PLAN_IDS,
-    isTest,
-  });
+  try {
+    const subscription = await checkActiveSubscription(billing, {
+      shop: session.shop,
+      isTest,
+    });
 
-  const subscription = summarizeActiveSubscription(checkResult);
-
-  return {
-    activePlan: subscription.activePlan,
-    hasActivePayment: subscription.hasActivePayment,
-    subscriptionId: subscription.subscriptionId,
-    isTestMode: isTest,
-  };
+    return {
+      activePlan: subscription.activePlan,
+      hasActivePayment: subscription.hasActivePayment,
+      subscriptionId: subscription.subscriptionId,
+      isTestMode: isTest,
+    };
+  } catch (error) {
+    console.error("[ReturnGuard] billing loader failed", error);
+    return {
+      activePlan: null,
+      hasActivePayment: false,
+      subscriptionId: null,
+      isTestMode: isTest,
+      loadError: "Unable to load billing status. Please refresh.",
+    };
+  }
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { billing, session, admin } = await authenticate.admin(request);
-  const isTest = await resolveBillingIsTestForShop(admin);
+  const isTest = await resolveBillingIsTestForShop(admin, session.shop);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
 
@@ -213,8 +221,13 @@ function stringifyBillingErrorData(data: unknown): string | null {
 }
 
 export default function BillingPage() {
-  const { activePlan, hasActivePayment, subscriptionId, isTestMode } =
-    useLoaderData<typeof loader>();
+  const {
+    activePlan,
+    hasActivePayment,
+    subscriptionId,
+    isTestMode,
+    loadError,
+  } = useLoaderData<typeof loader>();
   const { pages: { billing: b, common: c } } = useI18n();
   const plans = b.getPlans();
   const actionData = useActionData<typeof action>();
@@ -255,6 +268,11 @@ export default function BillingPage() {
     >
       <TitleBar title={b.title} />
       <BlockStack gap="500">
+        {loadError ? (
+          <Banner title={b.errorUnexpected} tone="warning">
+            <p>{loadError}</p>
+          </Banner>
+        ) : null}
         {isTestMode ? (
           <Card>
             <InlineStack gap="200" blockAlign="center">

@@ -1,7 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { useFetcher, useLoaderData, useRevalidator } from "@remix-run/react";
+import { useFetcher, useLoaderData } from "@remix-run/react";
 import type { ReactNode } from "react";
-import { useEffect } from "react";
 import {
   Badge,
   Banner,
@@ -33,6 +32,10 @@ import {
 } from "../models/return-risk";
 import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
+import { buildProductInsights } from "../models/product-insights.server";
+import { loadProductIntelligence } from "../models/product-intelligence.server";
+import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
+import { TopReturnProductsWidget } from "../components/product-intelligence/top-products-widget";
 import { useCsvExport } from "../hooks/use-csv-export";
 import styles from "../styles/dashboard-index.module.css";
 
@@ -43,13 +46,63 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     sessionLocale: session.locale ?? null,
   });
 
-  const [data, onboarding, aiInsights] = await Promise.all([
+  const [data, onboarding, aiInsights, productPage] = await Promise.all([
     loadReturnRiskData(admin, session.shop, locale),
-    getOnboardingProgress(session.shop),
-    loadAiInsights(session.shop, locale),
+    getOnboardingProgress(session.shop).catch((error) => {
+      console.error("[ReturnGuard] onboarding progress failed", error);
+      return {
+        shop: session.shop,
+        welcomeAcknowledged: false,
+        scopesVerified: false,
+        playbookSeeded: false,
+        settingsTuned: false,
+        completed: false,
+        dismissed: false,
+        nextStep: "welcome" as const,
+        percent: 0,
+      };
+    }),
+    loadAiInsights(session.shop, locale).catch((error) => {
+      console.error("[ReturnGuard] ai insights failed", error);
+      return [];
+    }),
+    loadProductIntelligence(admin, session.shop, locale, {
+      page: 1,
+      pageSize: 100,
+      sort: "returnsCount",
+      sortDirection: "desc",
+    }).catch((error) => {
+      console.error("[ReturnGuard] product intelligence failed", error);
+      return null;
+    }),
   ]);
 
-  return { ...data, onboarding, aiInsights, locale };
+  const productInsights = productPage
+    ? buildProductInsights(
+        productPage.allProducts,
+        productPage.summary.reasonAnalysis,
+        locale,
+      )
+    : [];
+  const topReturnProducts = productPage
+    ? [...productPage.allProducts]
+        .filter((product) => product.returnsCount > 0)
+        .sort((a, b) => b.returnsCount - a.returnsCount)
+        .slice(0, 5)
+    : [];
+
+  const mergedInsights = [...productInsights, ...aiInsights].slice(0, 6);
+
+  return {
+    ...data,
+    onboarding,
+    aiInsights: mergedInsights,
+    topReturnProducts,
+    productCurrencyCode:
+      productPage?.summary.currencyCode ?? data.summary.currencyCode,
+    productWidgetCopy: getProductInsightsCopy(locale),
+    locale,
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -69,28 +122,16 @@ export default function Dashboard() {
     recentActions,
     onboarding,
     aiInsights,
+    topReturnProducts,
+    productCurrencyCode,
+    productWidgetCopy,
   } = useLoaderData<typeof loader>();
   const { locale, dashboard: d } = useI18n();
-  const revalidator = useRevalidator();
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const dateLocale = getDateLocale(locale);
   const moneyFormatter = getMoneyFormatter(summary.currencyCode, dateLocale);
   const playbooks = [d.playbook1, d.playbook2, d.playbook3];
-
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "visible") {
-        revalidator.revalidate();
-      }
-    };
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [revalidator]);
 
   const marginEstimatePct = Math.round(
     settings.protectedMarginMultiplier * 100,
@@ -488,6 +529,24 @@ export default function Dashboard() {
                   </BlockStack>
                 </Card>
               ) : null}
+
+              <TopReturnProductsWidget
+                products={topReturnProducts}
+                moneyFormatter={getMoneyFormatter(
+                  productCurrencyCode,
+                  dateLocale,
+                )}
+                copy={{
+                  widgetTitle: productWidgetCopy.widgetTitle,
+                  widgetSubtitle: productWidgetCopy.widgetSubtitle,
+                  widgetOpen: productWidgetCopy.widgetOpen,
+                  widgetEmpty: productWidgetCopy.widgetEmpty,
+                  thProduct: productWidgetCopy.widgetThProduct,
+                  thReturnRate: productWidgetCopy.widgetThReturnRate,
+                  thRevenueLost: productWidgetCopy.widgetThRevenueLost,
+                  thRiskScore: productWidgetCopy.widgetThRiskScore,
+                }}
+              />
 
               <Card>
                 <BlockStack gap="300">

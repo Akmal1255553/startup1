@@ -2,7 +2,7 @@
 
 client_id = "0b558248ba23abd6861a0a76702f8325"
 name = "ReturnGuard-AI"
-application_url = "https://startup1-bu7t.onrender.com"
+application_url = "https://return-guard-ai-tan.vercel.app"
 embedded = true
 
 [build]
@@ -65,7 +65,7 @@ scopes = "read_orders,read_returns,read_products,read_customers"
 
 [auth]
 redirect_urls = [
-  "https://startup1-bu7t.onrender.com/auth/callback",
-  "https://startup1-bu7t.onrender.com/auth/shopify/callback",
-  "https://startup1-bu7t.onrender.com/api/auth/callback",
+  "https://return-guard-ai-tan.vercel.app/auth/callback",
+  "https://return-guard-ai-tan.vercel.app/auth/shopify/callback",
+  "https://return-guard-ai-tan.vercel.app/api/auth/callback",
 ]

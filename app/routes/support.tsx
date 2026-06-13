@@ -6,6 +6,7 @@ import type {
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 
+import { marketingHeaders } from "../lib/marketing-headers.server";
 import { LanguageSwitcherLegal } from "../components/language-switcher-legal";
 import { LegalLayout } from "../legal/legal-layout";
 import { getLandingCopy } from "../i18n/messages/landing";
@@ -24,6 +25,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const locale = await resolveLocale(request);
   return json({ locale });
 };
+
+export const headers = marketingHeaders;
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },

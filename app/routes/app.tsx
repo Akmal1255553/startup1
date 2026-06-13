@@ -1,4 +1,4 @@
-import type { HeadersFunction, LoaderFunctionArgs } from "@remix-run/node";
+import type { HeadersFunction } from "@remix-run/node";
 import { Link, Outlet, useLoaderData, useRouteError } from "@remix-run/react";
 import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
@@ -9,13 +9,10 @@ import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { LanguageSwitcherApp } from "../components/language-switcher-app";
 import { useI18n } from "../i18n/i18n-context";
 import { getPolarisI18n } from "../i18n/polaris-locale";
-import { authenticate } from "../shopify.server";
-
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
-
+export const loader = async () => {
+  // Child routes call authenticate.admin once; duplicating here doubled DB/API work.
   return { apiKey: process.env.SHOPIFY_API_KEY || "" };
 };
 
@@ -42,6 +39,9 @@ export default function App() {
         </Link>
         <Link to="/app/analytics" prefetch="intent">
           {app.navAnalytics}
+        </Link>
+        <Link to="/app/product-intelligence" prefetch="intent">
+          {app.navProductIntelligence}
         </Link>
         <Link to="/app/audit-log" prefetch="intent">
           {app.navAudit}

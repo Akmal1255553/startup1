@@ -21,6 +21,7 @@ import { useI18n } from "../i18n/i18n-context";
 import { describePlanContext } from "../i18n/messages/app/common";
 import { resolveLocale } from "../i18n/resolver.server";
 import {
+  emptyAnalyticsSummary,
   loadAnalytics,
   type AnalyticsSummary,
   type PeriodAnalytics,
@@ -34,23 +35,33 @@ import { Sparkline } from "../components/sparkline";
 import { loadCapabilities } from "../models/plan-gating.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session, billing } = await authenticate.admin(request);
+  const { session, billing, admin } = await authenticate.admin(request);
   const locale = await resolveLocale(request, {
     authenticatedShop: session.shop,
     sessionLocale: session.locale ?? null,
   });
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
+  let analyticsError = false;
   const [analytics, insights] = await Promise.all([
-    loadAnalytics(session.shop),
-    loadAiInsights(session.shop, locale),
+    loadAnalytics(session.shop).catch((error) => {
+      console.error("[ReturnGuard] analytics failed", error);
+      analyticsError = true;
+      return emptyAnalyticsSummary();
+    }),
+    loadAiInsights(session.shop, locale).catch((error) => {
+      console.error("[ReturnGuard] insights failed", error);
+      return [];
+    }),
   ]);
-  return { analytics, insights, capabilities };
+  return { analytics, insights, capabilities, analyticsError };
 };
 
 export default function AnalyticsPage() {
-  const { analytics, insights, capabilities } = useLoaderData<typeof loader>();
+  const { analytics, insights, capabilities, analyticsError } =
+    useLoaderData<typeof loader>();
   const {
     pages: { analytics: a, common: c },
+    dashboard: d,
   } = useI18n();
   const canSee30Days = capabilities.analyticsPeriodDays >= 30;
   const breakdownPeriod = canSee30Days
@@ -66,6 +77,14 @@ export default function AnalyticsPage() {
     >
       <TitleBar title={a.title} />
       <BlockStack gap="500">
+        {analyticsError ? (
+          <Banner title={d.errorTitleGeneric} tone="warning">
+            <p>
+              Unable to load analytics right now. Please refresh the page or try
+              again in a moment.
+            </p>
+          </Banner>
+        ) : null}
         {!canSee30Days ? (
           <Banner
             title={a.gatedTitle}

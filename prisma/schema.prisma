@@ -124,3 +124,67 @@ model OnboardingState {
   updatedAt             DateTime @updatedAt
   createdAt             DateTime @default(now())
 }
+
+model ProductReturnMetric {
+  id                   String   @id @default(cuid())
+  shop                 String
+  productId            String
+  productTitle         String
+  sku                  String?
+  ordersCount          Int      @default(0)
+  returnsCount         Int      @default(0)
+  returnRate           Decimal  @default(0)
+  revenueLost          Decimal  @default(0)
+  revenueAtRisk        Decimal  @default(0)
+  revenueRecoverable   Decimal  @default(0)
+  riskScore            Int      @default(0)
+  riskLevel            String   @default("low")
+  reasonSizing         Int      @default(0)
+  reasonDamaged        Int      @default(0)
+  reasonNotAsDescribed Int      @default(0)
+  reasonChangedMind    Int      @default(0)
+  reasonLateDelivery   Int      @default(0)
+  reasonOther          Int      @default(0)
+  customerComplaints   Int      @default(0)
+  currencyCode         String   @default("USD")
+  lastSyncedAt         DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  trendDays ProductReturnTrendDay[]
+
+  @@unique([shop, productId])
+  @@index([shop, returnRate])
+  @@index([shop, riskScore])
+  @@index([shop, returnsCount])
+}
+
+model ProductReturnTrendDay {
+  id        String   @id @default(cuid())
+  shop      String
+  productId String
+  date      String
+  count     Int      @default(0)
+
+  metric ProductReturnMetric @relation(fields: [shop, productId], references: [shop, productId], onDelete: Cascade)
+
+  @@unique([shop, productId, date])
+  @@index([shop, productId])
+}
+
+model ProductReturnEvent {
+  id             String   @id @default(cuid())
+  shop           String
+  productId      String
+  orderId        String
+  returnId       String?
+  quantity       Int      @default(1)
+  reasonCategory String
+  unitPrice      Decimal  @default(0)
+  currencyCode   String   @default("USD")
+  returnedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([shop, productId, returnedAt])
+  @@index([shop, returnId])
+}

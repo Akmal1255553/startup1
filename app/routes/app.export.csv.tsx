@@ -23,7 +23,7 @@ export type ExportCsvResponse =
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing } = await authenticate.admin(request);
-  const capabilities = await loadCapabilities(billing);
+  const capabilities = await loadCapabilities(billing, session.shop, admin);
   if (!capabilities.canExportCsv) {
     return { ok: false, error: "upgrade-required" } satisfies ExportCsvResponse;
   }

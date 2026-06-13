@@ -54,19 +54,52 @@ export function isDevelopmentShopPlan(plan: ShopPlanSnapshot): boolean {
   );
 }
 
-type BillingAdminGraphql = {
+export type BillingAdminGraphql = {
   graphql: (
     query: string,
     options?: { variables?: Record<string, unknown> },
   ) => Promise<Response>;
 };
 
+export type ActiveSubscriptionSummary = {
+  hasActivePayment: boolean;
+  activePlan: PlanId | null;
+  subscriptionId: string | null;
+  isTest: boolean;
+};
+
+const IS_TEST_TTL_MS = 5 * 60 * 1000;
+const SUBSCRIPTION_TTL_MS = 90 * 1000;
+
+const isTestCache = new Map<string, { value: boolean; expiresAt: number }>();
+const subscriptionCache = new Map<
+  string,
+  { value: ActiveSubscriptionSummary; expiresAt: number }
+>();
+
+export function getCachedBillingIsTest(shop: string): boolean | undefined {
+  const hit = isTestCache.get(shop);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  return undefined;
+}
+
+function cacheBillingIsTest(shop: string, isTest: boolean) {
+  isTestCache.set(shop, {
+    value: isTest,
+    expiresAt: Date.now() + IS_TEST_TTL_MS,
+  });
+}
+
 /**
  * Dev stores always get test charges; live stores follow BILLING_TEST on Render.
  */
 export async function resolveBillingIsTestForShop(
   admin: BillingAdminGraphql,
+  shop: string,
 ): Promise<boolean> {
+  const cached = getCachedBillingIsTest(shop);
+  if (cached !== undefined) return cached;
+
   try {
     const response = await admin.graphql(`#graphql
       query BillingShopPlan {
@@ -86,12 +119,46 @@ export async function resolveBillingIsTestForShop(
       };
     };
     if (isDevelopmentShopPlan(json.data?.shop?.plan)) {
+      cacheBillingIsTest(shop, true);
       return true;
     }
   } catch {
     // Use env default when plan lookup fails.
   }
+
+  cacheBillingIsTest(shop, BILLING_TEST_MODE);
   return BILLING_TEST_MODE;
+}
+
+type AdminBilling = {
+  check: (options: {
+    plans: PlanId[];
+    isTest: boolean;
+  }) => Promise<{
+    hasActivePayment: boolean;
+    appSubscriptions: Array<{ id: string; name: string; test?: boolean }>;
+  }>;
+};
+
+/** Cached wrapper around billing.check — shared by billing page and plan gating. */
+export async function checkActiveSubscription(
+  billing: AdminBilling,
+  options: { shop: string; isTest: boolean },
+): Promise<ActiveSubscriptionSummary> {
+  const cacheKey = `${options.shop}:${options.isTest}`;
+  const hit = subscriptionCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+
+  const result = await billing.check({
+    plans: KNOWN_PLAN_IDS,
+    isTest: options.isTest,
+  });
+  const summary = summarizeActiveSubscription(result);
+  subscriptionCache.set(cacheKey, {
+    value: summary,
+    expiresAt: Date.now() + SUBSCRIPTION_TTL_MS,
+  });
+  return summary;
 }
 
 /**
@@ -136,13 +203,6 @@ export const billingConfig = {
   [PLAN_STARTER]: buildSubscriptionPlan(PLAN_STARTER),
   [PLAN_GROWTH]: buildSubscriptionPlan(PLAN_GROWTH),
   [PLAN_SCALE]: buildSubscriptionPlan(PLAN_SCALE),
-};
-
-export type ActiveSubscriptionSummary = {
-  hasActivePayment: boolean;
-  activePlan: PlanId | null;
-  subscriptionId: string | null;
-  isTest: boolean;
 };
 
 /**

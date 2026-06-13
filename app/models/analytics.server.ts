@@ -46,6 +46,22 @@ export type AnalyticsSummary = {
  * to avoid multiple DB roundtrips. The audit log is naturally bounded
  * (one event per moderation action), so 30 days is cheap on SQLite.
  */
+export function emptyAnalyticsSummary(): AnalyticsSummary {
+  const emptyPeriod: PeriodAnalytics = {
+    daily: [],
+    totals: { approved: 0, review: 0, hold: 0, reset: 0, total: 0 },
+    approvalRate: 0,
+    flaggedRate: 0,
+  };
+  const today = formatDate(startOfDay(new Date()));
+  return {
+    last7Days: emptyPeriod,
+    last30Days: emptyPeriod,
+    today: { date: today, approved: 0, review: 0, hold: 0, reset: 0, total: 0 },
+    totalEvents: 0,
+  };
+}
+
 export async function loadAnalytics(shop: string): Promise<AnalyticsSummary> {
   const now = new Date();
   const startOfToday = startOfDay(now);

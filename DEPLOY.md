@@ -1,6 +1,13 @@
-# Deploy ReturnGuard AI to Render
+# Deploy ReturnGuard AI
+
+- **Vercel (recommended):** [DEPLOY_VERCEL.md](./DEPLOY_VERCEL.md)
+- **Render (legacy):** see sections below and [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
 
 For **Shopify App Store** submission (public listing, review, billing on live stores), see [SHOPIFY_APP_STORE.md](./SHOPIFY_APP_STORE.md).
+
+---
+
+# Deploy ReturnGuard AI to Render
 
 ## 1. Push latest code
 

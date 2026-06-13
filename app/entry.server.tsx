@@ -15,11 +15,17 @@ export const streamTimeout = 5000;
 /** Preserve thrown Response statuses (e.g. webhook 401) instead of turning into 500. */
 export function handleError(
   error: unknown,
-  _args: LoaderFunctionArgs | ActionFunctionArgs,
+  args: LoaderFunctionArgs | ActionFunctionArgs,
 ): Response | unknown {
   if (error instanceof Response) {
     return error;
   }
+  console.error(
+    "[ReturnGuard] unhandled route error",
+    args.request.method,
+    new URL(args.request.url).pathname,
+    error,
+  );
   return error;
 }
 
