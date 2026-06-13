@@ -1,8 +1,10 @@
 import type {
   ProductReturnRow,
   ProductRiskLevel,
-  ReasonBreakdown,
 } from "./product-intelligence.types";
+import { topReturnReasons } from "./product-risk-score";
+
+export { topReturnReasons };
 
 const RECOVERABLE_RATE = 0.35;
 const AT_RISK_RATE = 0.5;
@@ -87,20 +89,6 @@ export function finalizeProductRow(
     riskScore,
     riskLevel: returnRateRiskLevel(row.returnRate),
   };
-}
-
-export function topReturnReasons(
-  breakdown: ReasonBreakdown,
-  limit = 5,
-): Array<{ category: keyof ReasonBreakdown; count: number }> {
-  return Object.entries(breakdown)
-    .map(([category, count]) => ({
-      category: category as keyof ReasonBreakdown,
-      count,
-    }))
-    .filter((item) => item.count > 0)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
 }
 
 function roundMoney(value: number): number {

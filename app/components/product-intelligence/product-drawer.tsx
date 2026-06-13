@@ -9,7 +9,7 @@ import {
 } from "@shopify/polaris";
 
 import { Sparkline } from "../sparkline";
-import { topReturnReasons } from "../../models/product-risk-score.server";
+import { topReturnReasons } from "../../models/product-risk-score";
 import type {
   ProductRecommendation,
   ProductReturnRow,
