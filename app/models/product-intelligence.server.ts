@@ -70,7 +70,7 @@ type GraphqlOrderNode = {
       product?: { id: string; title: string } | null;
     }>;
   };
-  returns: {
+  returns?: {
     nodes: GraphqlReturnNode[];
   };
 };
@@ -145,6 +145,41 @@ const RETURN_LINE_ITEM_MINIMAL = `
         }
         variant {
           sku
+        }
+      }
+    }
+  }
+`;
+
+const ORDERS_FOR_COUNTS_QUERY = `#graphql
+  query ReturnGuardProductIntelligenceOrderCounts(
+    $first: Int!
+    $after: String
+    $query: String
+  ) {
+    orders(
+      first: $first
+      after: $after
+      query: $query
+      sortKey: CREATED_AT
+      reverse: true
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        lineItems(first: 50) {
+          nodes {
+            id
+            quantity
+            sku
+            product {
+              id
+              title
+            }
+          }
         }
       }
     }
@@ -287,8 +322,8 @@ export async function loadProductIntelligence(
   const search = (query.query ?? "").trim().toLowerCase();
 
   try {
-    const { orders, totalProducts, currencyCode } =
-      await fetchRecentReturnOrders(admin);
+    const { countOrders, returnOrders, totalProducts, currencyCode, analysisStartMs } =
+      await fetchRecentReturnData(admin);
     const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
       (error) => {
         console.error("[ReturnGuard] product complaint counts failed", error);
@@ -296,9 +331,11 @@ export async function loadProductIntelligence(
       },
     );
     const aggregates = aggregateProductMetrics(
-      orders,
+      countOrders,
+      returnOrders,
       complaintCounts,
       currencyCode,
+      analysisStartMs,
     );
     const products = finalizeProducts(aggregates);
     const summary = buildSummary(products, totalProducts, currencyCode);
@@ -391,12 +428,19 @@ export async function loadTopReturnProducts(
   limit = 5,
 ): Promise<ProductReturnRow[]> {
   try {
-    const { orders, currencyCode } = await fetchRecentReturnOrders(admin);
+    const { countOrders, returnOrders, currencyCode, analysisStartMs } =
+      await fetchRecentReturnData(admin);
     const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
       () => new Map<string, number>(),
     );
     const products = finalizeProducts(
-      aggregateProductMetrics(orders, complaintCounts, currencyCode),
+      aggregateProductMetrics(
+        countOrders,
+        returnOrders,
+        complaintCounts,
+        currencyCode,
+        analysisStartMs,
+      ),
     );
     return [...products]
       .filter((product) => product.returnsCount > 0)
@@ -412,45 +456,57 @@ export async function loadTopReturnProducts(
   }
 }
 
-async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
-  orders: GraphqlOrderNode[];
+async function fetchRecentReturnData(admin: ShopifyAdmin): Promise<{
+  countOrders: GraphqlOrderNode[];
+  returnOrders: GraphqlOrderNode[];
   totalProducts: number;
   currencyCode: string;
+  analysisStartMs: number;
 }> {
-  const startDate = new Date(Date.now() - (ANALYSIS_DAYS - 1) * DAY_MS);
-  const dateFilter = startDate.toISOString().slice(0, 10);
-  const searchQuery = `status:any created_at:>=${dateFilter}`;
+  const analysisStartMs = Date.now() - ANALYSIS_DAYS * DAY_MS;
+  const dateFilter = new Date(analysisStartMs).toISOString().slice(0, 10);
+  const countQuery = `status:any created_at:>=${dateFilter}`;
+  const returnStatusQuery =
+    "return_status:returned OR return_status:in_progress OR return_status:inspection_complete OR return_status:return_requested";
 
-  const orders: GraphqlOrderNode[] = [];
-  let cursor: string | null = null;
+  const [countOrders, returnStatusOrders] = await Promise.all([
+    paginateOrders(admin, countQuery, ORDERS_FOR_COUNTS_QUERY),
+    paginateOrders(
+      admin,
+      returnStatusQuery,
+      ORDERS_WITH_RETURNS_QUERY,
+      MAX_ORDER_PAGES * 2,
+    ).catch((error) => {
+      console.error("[ReturnGuard] return_status order query failed", error);
+      return [] as GraphqlOrderNode[];
+    }),
+  ]);
 
-  for (let page = 0; page < MAX_ORDER_PAGES; page++) {
-    const variables = {
-      first: ORDERS_PAGE_SIZE,
-      after: cursor,
-      query: searchQuery,
-    };
-    const payload = await fetchOrdersWithReturnsPage(admin, variables);
-    if (payload.errors?.length) {
-      throw new Error(payload.errors[0]?.message ?? "GraphQL error");
-    }
+  let returnOrders = returnStatusOrders.filter(
+    (order) => (order.returns?.nodes?.length ?? 0) > 0,
+  );
 
-    const connection = payload.data?.orders;
-    const nodes: GraphqlOrderNode[] = connection?.nodes ?? [];
-    orders.push(...nodes);
-
-    if (!connection?.pageInfo?.hasNextPage) break;
-    cursor = connection.pageInfo.endCursor ?? null;
+  if (!returnOrders.length) {
+    const recentWithReturns = await paginateOrders(
+      admin,
+      countQuery,
+      ORDERS_WITH_RETURNS_QUERY,
+    );
+    returnOrders = recentWithReturns.filter(
+      (order) => (order.returns?.nodes?.length ?? 0) > 0,
+    );
   }
 
-  const returnIds = orders.flatMap((order) =>
+  const returnIds = returnOrders.flatMap((order) =>
     (order.returns?.nodes ?? []).map((ret) => ret.id),
   );
   const lineItemsByReturnId = await fetchReturnLineItemsMap(admin, returnIds);
 
   let currencyCode = "USD";
-  for (const order of orders) {
+  for (const order of returnOrders) {
     for (const ret of order.returns?.nodes ?? []) {
+      if (new Date(ret.createdAt).getTime() < analysisStartMs) continue;
+
       const lineItems = lineItemsByReturnId.get(ret.id) ?? [];
       ret.returnLineItems = { nodes: lineItems };
       for (const line of lineItems) {
@@ -464,10 +520,43 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
   }
 
   return {
-    orders,
-    totalProducts: countUniqueProducts(orders),
+    countOrders,
+    returnOrders,
+    totalProducts: countUniqueProducts(countOrders),
     currencyCode,
+    analysisStartMs,
   };
+}
+
+async function paginateOrders(
+  admin: ShopifyAdmin,
+  searchQuery: string,
+  query: string,
+  maxPages = MAX_ORDER_PAGES,
+): Promise<GraphqlOrderNode[]> {
+  const orders: GraphqlOrderNode[] = [];
+  let cursor: string | null = null;
+
+  for (let page = 0; page < maxPages; page++) {
+    const variables = {
+      first: ORDERS_PAGE_SIZE,
+      after: cursor,
+      query: searchQuery,
+    };
+    const payload = await fetchOrdersPage(admin, variables, query);
+    if (payload.errors?.length) {
+      throw new Error(payload.errors[0]?.message ?? "GraphQL error");
+    }
+
+    const connection = payload.data?.orders;
+    const nodes: GraphqlOrderNode[] = connection?.nodes ?? [];
+    orders.push(...nodes);
+
+    if (!connection?.pageInfo?.hasNextPage) break;
+    cursor = connection.pageInfo.endCursor ?? null;
+  }
+
+  return orders;
 }
 
 type ProductIntelligenceGraphqlResponse = {
@@ -490,11 +579,12 @@ type ReturnLineItemsBatchResponse = {
   errors?: Array<{ message?: string }>;
 };
 
-async function fetchOrdersWithReturnsPage(
+async function fetchOrdersPage(
   admin: ShopifyAdmin,
   variables: Record<string, unknown>,
+  query: string,
 ): Promise<ProductIntelligenceGraphqlResponse> {
-  const response = await admin.graphql(ORDERS_WITH_RETURNS_QUERY, { variables });
+  const response = await admin.graphql(query, { variables });
   return (await response.json()) as ProductIntelligenceGraphqlResponse;
 }
 
@@ -585,14 +675,15 @@ type ProductAggregate = {
 };
 
 function aggregateProductMetrics(
-  orders: GraphqlOrderNode[],
+  countOrders: GraphqlOrderNode[],
+  returnOrders: GraphqlOrderNode[],
   complaintCounts: Map<string, number>,
   currencyCode: string,
+  analysisStartMs: number,
 ): ProductAggregate[] {
   const byProduct = new Map<string, ProductAggregate>();
-  const orderProducts = new Map<string, Set<string>>();
 
-  for (const order of orders) {
+  for (const order of countOrders) {
     const productIdsInOrder = new Set<string>();
     for (const line of order.lineItems?.nodes ?? []) {
       const productId = line.product?.id;
@@ -604,15 +695,18 @@ function aggregateProductMetrics(
         currencyCode,
       });
     }
-    orderProducts.set(order.id, productIdsInOrder);
 
     for (const productId of productIdsInOrder) {
       const aggregate = byProduct.get(productId);
       if (aggregate) aggregate.ordersCount += 1;
     }
+  }
 
+  for (const order of returnOrders) {
     const complaints = complaintCounts.get(order.id) ?? 0;
     for (const ret of order.returns?.nodes ?? []) {
+      if (new Date(ret.createdAt).getTime() < analysisStartMs) continue;
+
       const returnDate = formatDate(new Date(ret.createdAt));
       const lineItems = ret.returnLineItems?.nodes ?? [];
       if (lineItems.length) {
