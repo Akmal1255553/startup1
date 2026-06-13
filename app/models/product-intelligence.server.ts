@@ -72,6 +72,34 @@ type GraphqlOrderNode = {
   };
 };
 
+const RETURN_LINE_ITEM_FIELDS = `
+  ... on ReturnLineItem {
+    quantity
+    returnReason
+    returnReasonNote
+    fulfillmentLineItem {
+      lineItem {
+        id
+        sku
+        title
+        product {
+          id
+          title
+        }
+        variant {
+          sku
+        }
+        originalUnitPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+    }
+  }
+`;
+
 const PRODUCT_INTELLIGENCE_QUERY = `#graphql
   query ReturnGuardProductIntelligence(
     $first: Int!
@@ -112,29 +140,66 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
             createdAt
             returnLineItems(first: 25) {
               nodes {
-                quantity
-                returnReason
-                returnReasonNote
-                returnReasonDefinition {
-                  handle
-                  name
-                }
-                fulfillmentLineItem {
-                  lineItem {
-                    id
-                    sku
-                    title
-                    product {
+                ${RETURN_LINE_ITEM_FIELDS}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Fallback when protected fields or price sets are unavailable. */
+const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
+  query ReturnGuardProductIntelligenceFallback(
+    $first: Int!
+    $after: String
+    $query: String
+  ) {
+    orders(
+      first: $first
+      after: $after
+      query: $query
+      sortKey: CREATED_AT
+      reverse: true
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        createdAt
+        lineItems(first: 50) {
+          nodes {
+            id
+            quantity
+            sku
+            product {
+              id
+              title
+            }
+          }
+        }
+        returns(first: 10) {
+          nodes {
+            id
+            createdAt
+            returnLineItems(first: 25) {
+              nodes {
+                ... on ReturnLineItem {
+                  quantity
+                  returnReason
+                  returnReasonNote
+                  fulfillmentLineItem {
+                    lineItem {
                       id
-                      title
-                    }
-                    variant {
                       sku
-                    }
-                    originalUnitPriceSet {
-                      shopMoney {
-                        amount
-                        currencyCode
+                      title
+                      product {
+                        id
+                        title
                       }
                     }
                   }
@@ -243,7 +308,8 @@ export async function loadProductIntelligence(
       error: null,
     };
   } catch (error) {
-    console.error("[ReturnGuard] product intelligence failed", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[ReturnGuard] product intelligence failed", message, error);
     const cached = await loadCachedProductMetrics(shop).catch(() => []);
     if (cached.length) {
       const summary = buildSummary(cached, cached.length, cached[0]?.currencyCode ?? "USD");
@@ -266,7 +332,7 @@ export async function loadProductIntelligence(
         sort,
         sortDirection,
         query: query.query ?? "",
-        error: copy.errorLoad,
+        error: null,
       };
     }
 
@@ -316,22 +382,33 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
   let totalProducts = 0;
   let currencyCode = "USD";
 
+  let useFallback = false;
+
   for (let page = 0; page < MAX_ORDER_PAGES; page++) {
-    const response = await admin.graphql(PRODUCT_INTELLIGENCE_QUERY, {
-      variables: {
-        first: ORDERS_PAGE_SIZE,
-        after: cursor,
-        query: searchQuery,
-      },
-    });
-    const payload = await response.json();
+    const variables = {
+      first: ORDERS_PAGE_SIZE,
+      after: cursor,
+      query: searchQuery,
+    };
+    const payload = await loadProductIntelligencePage(admin, variables, useFallback);
     if (payload.errors?.length) {
+      if (!useFallback) {
+        console.error(
+          "[ReturnGuard] product intelligence primary GraphQL errors",
+          payload.errors,
+        );
+        useFallback = true;
+        page -= 1;
+        continue;
+      }
       throw new Error(payload.errors[0]?.message ?? "GraphQL error");
     }
 
-    totalProducts = payload.data?.productsCount?.count ?? totalProducts;
     const connection = payload.data?.orders;
     const nodes: GraphqlOrderNode[] = connection?.nodes ?? [];
+    totalProducts =
+      payload.data?.productsCount?.count ??
+      (totalProducts || countUniqueProducts(nodes));
     orders.push(...nodes);
 
     for (const order of nodes) {
@@ -352,6 +429,39 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
   }
 
   return { orders, totalProducts, currencyCode };
+}
+
+type ProductIntelligenceGraphqlResponse = {
+  data?: {
+    productsCount?: { count?: number | null } | null;
+    orders?: {
+      pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+      nodes?: GraphqlOrderNode[];
+    } | null;
+  } | null;
+  errors?: Array<{ message?: string }>;
+};
+
+async function loadProductIntelligencePage(
+  admin: ShopifyAdmin,
+  variables: Record<string, unknown>,
+  useFallback: boolean,
+): Promise<ProductIntelligenceGraphqlResponse> {
+  const query = useFallback
+    ? PRODUCT_INTELLIGENCE_FALLBACK_QUERY
+    : PRODUCT_INTELLIGENCE_QUERY;
+  const response = await admin.graphql(query, { variables });
+  return (await response.json()) as ProductIntelligenceGraphqlResponse;
+}
+
+function countUniqueProducts(orders: GraphqlOrderNode[]): number {
+  const ids = new Set<string>();
+  for (const order of orders) {
+    for (const line of order.lineItems?.nodes ?? []) {
+      if (line.product?.id) ids.add(line.product.id);
+    }
+  }
+  return ids.size;
 }
 
 type ProductAggregate = {
