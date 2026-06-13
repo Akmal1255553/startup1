@@ -50,6 +50,15 @@ type GraphqlReturnLineItem = {
   } | null;
 };
 
+type GraphqlReturnNode = {
+  id: string;
+  createdAt: string;
+  totalQuantity?: number;
+  returnLineItems?: {
+    nodes: GraphqlReturnLineItem[];
+  };
+};
+
 type GraphqlOrderNode = {
   id: string;
   createdAt: string;
@@ -62,13 +71,7 @@ type GraphqlOrderNode = {
     }>;
   };
   returns: {
-    nodes: Array<{
-      id: string;
-      createdAt: string;
-      returnLineItems: {
-        nodes: GraphqlReturnLineItem[];
-      };
-    }>;
+    nodes: GraphqlReturnNode[];
   };
 };
 
@@ -104,8 +107,53 @@ const RETURN_LINE_ITEM_PRIMARY = `
   }
 `;
 
-const PRODUCT_INTELLIGENCE_QUERY = `#graphql
-  query ReturnGuardProductIntelligence(
+const RETURN_LINE_ITEM_FALLBACK = `
+  ... on ReturnLineItem {
+    quantity
+    returnReasonDefinition {
+      handle
+      name
+    }
+    fulfillmentLineItem {
+      lineItem {
+        id
+        sku
+        title
+        product {
+          id
+          title
+        }
+        variant {
+          sku
+        }
+      }
+    }
+  }
+`;
+
+const RETURN_LINE_ITEM_MINIMAL = `
+  ... on ReturnLineItem {
+    quantity
+    fulfillmentLineItem {
+      lineItem {
+        id
+        sku
+        title
+        product {
+          id
+          title
+        }
+        variant {
+          sku
+        }
+      }
+    }
+  }
+`;
+
+/** Phase 1: same shape as Returns Queue — orders with return headers only. */
+const ORDERS_WITH_RETURNS_QUERY = `#graphql
+  query ReturnGuardProductIntelligenceOrders(
     $first: Int!
     $after: String
     $query: String
@@ -139,11 +187,7 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
           nodes {
             id
             createdAt
-            returnLineItems(first: 25) {
-              nodes {
-                ${RETURN_LINE_ITEM_PRIMARY}
-              }
-            }
+            totalQuantity
           }
         }
       }
@@ -151,67 +195,15 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
   }
 `;
 
-/** Fallback when price sets or legacy return reason fields are unavailable. */
-const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
-  query ReturnGuardProductIntelligenceFallback(
-    $first: Int!
-    $after: String
-    $query: String
-  ) {
-    orders(
-      first: $first
-      after: $after
-      query: $query
-      sortKey: CREATED_AT
-      reverse: true
-    ) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+/** Phase 2: fetch return line items in a separate batch query. */
+const RETURN_LINE_ITEMS_BATCH_QUERY = `#graphql
+  query ReturnGuardReturnLineItemsBatch($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Return {
         id
-        createdAt
-        lineItems(first: 50) {
+        returnLineItems(first: 25) {
           nodes {
-            id
-            quantity
-            sku
-            product {
-              id
-              title
-            }
-          }
-        }
-        returns(first: 25, reverse: true) {
-          nodes {
-            id
-            createdAt
-            returnLineItems(first: 25) {
-              nodes {
-                ... on ReturnLineItem {
-                  quantity
-                  returnReasonDefinition {
-                    handle
-                    name
-                  }
-                  fulfillmentLineItem {
-                    lineItem {
-                      id
-                      sku
-                      title
-                      product {
-                        id
-                        title
-                      }
-                      variant {
-                        sku
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            ${RETURN_LINE_ITEM_PRIMARY}
           }
         }
       }
@@ -219,63 +211,14 @@ const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
   }
 `;
 
-/** Last resort: product mapping only, no return reasons or prices. */
-const PRODUCT_INTELLIGENCE_MINIMAL_QUERY = `#graphql
-  query ReturnGuardProductIntelligenceMinimal(
-    $first: Int!
-    $after: String
-    $query: String
-  ) {
-    orders(
-      first: $first
-      after: $after
-      query: $query
-      sortKey: CREATED_AT
-      reverse: true
-    ) {
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-      nodes {
+const RETURN_LINE_ITEMS_BATCH_FALLBACK_QUERY = `#graphql
+  query ReturnGuardReturnLineItemsBatchFallback($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Return {
         id
-        createdAt
-        lineItems(first: 50) {
+        returnLineItems(first: 25) {
           nodes {
-            id
-            quantity
-            sku
-            product {
-              id
-              title
-            }
-          }
-        }
-        returns(first: 25, reverse: true) {
-          nodes {
-            id
-            createdAt
-            returnLineItems(first: 25) {
-              nodes {
-                ... on ReturnLineItem {
-                  quantity
-                  fulfillmentLineItem {
-                    lineItem {
-                      id
-                      sku
-                      title
-                      product {
-                        id
-                        title
-                      }
-                      variant {
-                        sku
-                      }
-                    }
-                  }
-                }
-              }
-            }
+            ${RETURN_LINE_ITEM_FALLBACK}
           }
         }
       }
@@ -283,11 +226,28 @@ const PRODUCT_INTELLIGENCE_MINIMAL_QUERY = `#graphql
   }
 `;
 
-const PRODUCT_INTELLIGENCE_QUERIES = [
-  { name: "primary", query: PRODUCT_INTELLIGENCE_QUERY },
-  { name: "fallback", query: PRODUCT_INTELLIGENCE_FALLBACK_QUERY },
-  { name: "minimal", query: PRODUCT_INTELLIGENCE_MINIMAL_QUERY },
+const RETURN_LINE_ITEMS_BATCH_MINIMAL_QUERY = `#graphql
+  query ReturnGuardReturnLineItemsBatchMinimal($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on Return {
+        id
+        returnLineItems(first: 25) {
+          nodes {
+            ${RETURN_LINE_ITEM_MINIMAL}
+          }
+        }
+      }
+    }
+  }
+`;
+
+const RETURN_LINE_ITEMS_BATCH_QUERIES = [
+  { name: "primary", query: RETURN_LINE_ITEMS_BATCH_QUERY },
+  { name: "fallback", query: RETURN_LINE_ITEMS_BATCH_FALLBACK_QUERY },
+  { name: "minimal", query: RETURN_LINE_ITEMS_BATCH_MINIMAL_QUERY },
 ] as const;
+
+const RETURN_LINE_ITEMS_BATCH_SIZE = 50;
 
 export function emptyProductIntelligencePage(
   query: ProductIntelligenceQuery = {},
@@ -419,7 +379,8 @@ export async function loadProductIntelligence(
 
     return {
       ...emptyProductIntelligencePage(query),
-      error: copy.errorLoad,
+      insights: buildProductInsights([], buildReasonAnalysis([]), locale),
+      error: null,
     };
   }
 }
@@ -431,7 +392,9 @@ export async function loadTopReturnProducts(
 ): Promise<ProductReturnRow[]> {
   try {
     const { orders, currencyCode } = await fetchRecentReturnOrders(admin);
-    const complaintCounts = await loadComplaintCountsByOrder(shop);
+    const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
+      () => new Map<string, number>(),
+    );
     const products = finalizeProducts(
       aggregateProductMetrics(orders, complaintCounts, currencyCode),
     );
@@ -456,12 +419,10 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
 }> {
   const startDate = new Date(Date.now() - (ANALYSIS_DAYS - 1) * DAY_MS);
   const dateFilter = startDate.toISOString().slice(0, 10);
-  const searchQuery = `created_at:>=${dateFilter}`;
+  const searchQuery = `status:any created_at:>=${dateFilter}`;
 
   const orders: GraphqlOrderNode[] = [];
   let cursor: string | null = null;
-  let currencyCode = "USD";
-  let resolvedQuery: string | null = null;
 
   for (let page = 0; page < MAX_ORDER_PAGES; page++) {
     const variables = {
@@ -469,42 +430,37 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
       after: cursor,
       query: searchQuery,
     };
-
-    let payload: ProductIntelligenceGraphqlResponse;
-    if (page === 0) {
-      const resolved = await resolveProductIntelligenceQuery(admin, variables);
-      resolvedQuery = resolved.query;
-      payload = resolved.firstPayload;
-    } else {
-      payload = await fetchProductIntelligencePayload(
-        admin,
-        variables,
-        resolvedQuery!,
-      );
-      if (payload.errors?.length) {
-        throw new Error(payload.errors[0]?.message ?? "GraphQL error");
-      }
+    const payload = await fetchOrdersWithReturnsPage(admin, variables);
+    if (payload.errors?.length) {
+      throw new Error(payload.errors[0]?.message ?? "GraphQL error");
     }
 
     const connection = payload.data?.orders;
     const nodes: GraphqlOrderNode[] = connection?.nodes ?? [];
     orders.push(...nodes);
 
-    for (const order of nodes) {
-      for (const ret of order.returns?.nodes ?? []) {
-        for (const line of ret.returnLineItems?.nodes ?? []) {
-          const money =
-            line.fulfillmentLineItem?.lineItem?.originalUnitPriceSet
-              ?.shopMoney;
-          if (money?.currencyCode) {
-            currencyCode = money.currencyCode;
-          }
+    if (!connection?.pageInfo?.hasNextPage) break;
+    cursor = connection.pageInfo.endCursor ?? null;
+  }
+
+  const returnIds = orders.flatMap((order) =>
+    (order.returns?.nodes ?? []).map((ret) => ret.id),
+  );
+  const lineItemsByReturnId = await fetchReturnLineItemsMap(admin, returnIds);
+
+  let currencyCode = "USD";
+  for (const order of orders) {
+    for (const ret of order.returns?.nodes ?? []) {
+      const lineItems = lineItemsByReturnId.get(ret.id) ?? [];
+      ret.returnLineItems = { nodes: lineItems };
+      for (const line of lineItems) {
+        const money =
+          line.fulfillmentLineItem?.lineItem?.originalUnitPriceSet?.shopMoney;
+        if (money?.currencyCode) {
+          currencyCode = money.currencyCode;
         }
       }
     }
-
-    if (!connection?.pageInfo?.hasNextPage) break;
-    cursor = connection.pageInfo.endCursor ?? null;
   }
 
   return {
@@ -524,46 +480,85 @@ type ProductIntelligenceGraphqlResponse = {
   errors?: Array<{ message?: string; extensions?: { code?: string } }>;
 };
 
-async function fetchProductIntelligencePayload(
+type ReturnLineItemsBatchResponse = {
+  data?: {
+    nodes?: Array<{
+      id?: string;
+      returnLineItems?: { nodes?: GraphqlReturnLineItem[] };
+    } | null>;
+  } | null;
+  errors?: Array<{ message?: string }>;
+};
+
+async function fetchOrdersWithReturnsPage(
   admin: ShopifyAdmin,
   variables: Record<string, unknown>,
-  query: string,
 ): Promise<ProductIntelligenceGraphqlResponse> {
-  const response = await admin.graphql(query, { variables });
+  const response = await admin.graphql(ORDERS_WITH_RETURNS_QUERY, { variables });
   return (await response.json()) as ProductIntelligenceGraphqlResponse;
 }
 
-async function resolveProductIntelligenceQuery(
+async function fetchReturnLineItemsMap(
   admin: ShopifyAdmin,
-  variables: Record<string, unknown>,
-): Promise<{ query: string; firstPayload: ProductIntelligenceGraphqlResponse }> {
+  returnIds: string[],
+): Promise<Map<string, GraphqlReturnLineItem[]>> {
+  const result = new Map<string, GraphqlReturnLineItem[]>();
+  const uniqueIds = [...new Set(returnIds)];
+  if (!uniqueIds.length) return result;
+
+  for (let index = 0; index < uniqueIds.length; index += RETURN_LINE_ITEMS_BATCH_SIZE) {
+    const chunk = uniqueIds.slice(index, index + RETURN_LINE_ITEMS_BATCH_SIZE);
+    const chunkResult = await fetchReturnLineItemsBatch(admin, chunk);
+    for (const [returnId, lineItems] of chunkResult) {
+      result.set(returnId, lineItems);
+    }
+  }
+
+  return result;
+}
+
+async function fetchReturnLineItemsBatch(
+  admin: ShopifyAdmin,
+  returnIds: string[],
+): Promise<Map<string, GraphqlReturnLineItem[]>> {
+  const result = new Map<string, GraphqlReturnLineItem[]>();
   let lastErrors: Array<{ message?: string }> = [];
 
-  for (const tier of PRODUCT_INTELLIGENCE_QUERIES) {
-    const payload = await fetchProductIntelligencePayload(
-      admin,
-      variables,
-      tier.query,
-    );
-    if (!payload.errors?.length) {
-      if (tier.name !== "primary") {
-        console.log(
-          `[ReturnGuard] product intelligence using ${tier.name} GraphQL query`,
-        );
-      }
-      return { query: tier.query, firstPayload: payload };
+  for (const tier of RETURN_LINE_ITEMS_BATCH_QUERIES) {
+    const response = await admin.graphql(tier.query, {
+      variables: { ids: returnIds },
+    });
+    const payload = (await response.json()) as ReturnLineItemsBatchResponse;
+    if (payload.errors?.length) {
+      lastErrors = payload.errors;
+      console.error(
+        `[ReturnGuard] return line items ${tier.name} GraphQL errors`,
+        payload.errors,
+      );
+      continue;
     }
 
-    lastErrors = payload.errors ?? [];
+    if (tier.name !== "primary") {
+      console.log(
+        `[ReturnGuard] return line items using ${tier.name} GraphQL query`,
+      );
+    }
+
+    for (const node of payload.data?.nodes ?? []) {
+      if (!node?.id) continue;
+      result.set(node.id, node.returnLineItems?.nodes ?? []);
+    }
+    return result;
+  }
+
+  if (lastErrors.length) {
     console.error(
-      `[ReturnGuard] product intelligence ${tier.name} GraphQL errors`,
-      payload.errors,
+      "[ReturnGuard] return line items batch failed; using totalQuantity estimates",
+      lastErrors,
     );
   }
 
-  throw new Error(
-    lastErrors[0]?.message ?? "Unable to load Shopify return data",
-  );
+  return result;
 }
 
 function countUniqueProducts(orders: GraphqlOrderNode[]): number {
@@ -619,41 +614,118 @@ function aggregateProductMetrics(
     const complaints = complaintCounts.get(order.id) ?? 0;
     for (const ret of order.returns?.nodes ?? []) {
       const returnDate = formatDate(new Date(ret.createdAt));
-      for (const line of ret.returnLineItems?.nodes ?? []) {
-        const lineItem = line.fulfillmentLineItem?.lineItem;
-        const productId = lineItem?.product?.id;
-        if (!productId) continue;
+      const lineItems = ret.returnLineItems?.nodes ?? [];
+      if (lineItems.length) {
+        for (const line of lineItems) {
+          applyReturnLineItem(
+            byProduct,
+            line,
+            returnDate,
+            complaints,
+            currencyCode,
+          );
+        }
+        continue;
+      }
 
-        const aggregate = ensureAggregate(byProduct, productId, {
-          productTitle: lineItem.product?.title ?? lineItem.title ?? "Unknown product",
-          sku: lineItem.sku ?? lineItem.variant?.sku ?? null,
-          currencyCode,
-        });
-
-        const quantity = line.quantity ?? 1;
-        const unitPrice = Number(
-          lineItem.originalUnitPriceSet?.shopMoney.amount ?? "0",
-        );
-        aggregate.returnsCount += quantity;
-        aggregate.revenueLost += unitPrice * quantity;
-        aggregate.customerComplaints += complaints;
-
-        const category = categorizeReturnReason({
-          returnReason: line.returnReason,
-          reasonHandle: line.returnReasonDefinition?.handle,
-          reasonName: line.returnReasonDefinition?.name,
-          note: line.returnReasonNote,
-        });
-        aggregate.reasonBreakdown[category] += quantity;
-        aggregate.trendMap.set(
+      if ((ret.totalQuantity ?? 0) > 0) {
+        applyEstimatedReturnQuantities(
+          byProduct,
+          order,
+          ret.totalQuantity ?? 0,
           returnDate,
-          (aggregate.trendMap.get(returnDate) ?? 0) + quantity,
+          complaints,
+          currencyCode,
         );
       }
     }
   }
 
   return Array.from(byProduct.values());
+}
+
+function applyReturnLineItem(
+  byProduct: Map<string, ProductAggregate>,
+  line: GraphqlReturnLineItem,
+  returnDate: string,
+  complaints: number,
+  currencyCode: string,
+) {
+  const lineItem = line.fulfillmentLineItem?.lineItem;
+  const productId = lineItem?.product?.id;
+  if (!productId) return;
+
+  const aggregate = ensureAggregate(byProduct, productId, {
+    productTitle: lineItem.product?.title ?? lineItem.title ?? "Unknown product",
+    sku: lineItem.sku ?? lineItem.variant?.sku ?? null,
+    currencyCode,
+  });
+
+  const quantity = line.quantity ?? 1;
+  const unitPrice = Number(
+    lineItem.originalUnitPriceSet?.shopMoney.amount ?? "0",
+  );
+  aggregate.returnsCount += quantity;
+  aggregate.revenueLost += unitPrice * quantity;
+  aggregate.customerComplaints += complaints;
+
+  const category = categorizeReturnReason({
+    returnReason: line.returnReason,
+    reasonHandle: line.returnReasonDefinition?.handle,
+    reasonName: line.returnReasonDefinition?.name,
+    note: line.returnReasonNote,
+  });
+  aggregate.reasonBreakdown[category] += quantity;
+  aggregate.trendMap.set(
+    returnDate,
+    (aggregate.trendMap.get(returnDate) ?? 0) + quantity,
+  );
+}
+
+function applyEstimatedReturnQuantities(
+  byProduct: Map<string, ProductAggregate>,
+  order: GraphqlOrderNode,
+  totalQuantity: number,
+  returnDate: string,
+  complaints: number,
+  currencyCode: string,
+) {
+  const lineItems = (order.lineItems?.nodes ?? []).filter(
+    (line) => line.product?.id,
+  );
+  if (!lineItems.length) return;
+
+  const totalLineQty = lineItems.reduce(
+    (sum, line) => sum + Math.max(1, line.quantity),
+    0,
+  );
+  let remaining = totalQuantity;
+
+  lineItems.forEach((line, index) => {
+    const productId = line.product!.id;
+    const isLast = index === lineItems.length - 1;
+    const quantity = isLast
+      ? remaining
+      : Math.max(
+          0,
+          Math.round((totalQuantity * Math.max(1, line.quantity)) / totalLineQty),
+        );
+    remaining -= quantity;
+    if (quantity <= 0) return;
+
+    const aggregate = ensureAggregate(byProduct, productId, {
+      productTitle: line.product?.title ?? "Unknown product",
+      sku: line.sku ?? null,
+      currencyCode,
+    });
+    aggregate.returnsCount += quantity;
+    aggregate.customerComplaints += complaints;
+    aggregate.reasonBreakdown.other += quantity;
+    aggregate.trendMap.set(
+      returnDate,
+      (aggregate.trendMap.get(returnDate) ?? 0) + quantity,
+    );
+  });
 }
 
 function finalizeProducts(aggregates: ProductAggregate[]): ProductReturnRow[] {
@@ -891,10 +963,9 @@ async function loadCachedProductMetrics(shop: string): Promise<ProductReturnRow[
 }
 
 function filterProducts(products: ProductReturnRow[], query: string) {
-  if (!query) {
-    return products.filter((product) => product.returnsCount > 0 || product.ordersCount > 0);
-  }
-  return products.filter((product) => {
+  const withReturns = products.filter((product) => product.returnsCount > 0);
+  if (!query) return withReturns;
+  return withReturns.filter((product) => {
     const haystack = `${product.productTitle} ${product.sku ?? ""}`.toLowerCase();
     return haystack.includes(query);
   });
