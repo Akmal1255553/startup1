@@ -72,11 +72,15 @@ type GraphqlOrderNode = {
   };
 };
 
-const RETURN_LINE_ITEM_FIELDS = `
+const RETURN_LINE_ITEM_PRIMARY = `
   ... on ReturnLineItem {
     quantity
     returnReason
     returnReasonNote
+    returnReasonDefinition {
+      handle
+      name
+    }
     fulfillmentLineItem {
       lineItem {
         id
@@ -106,9 +110,6 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
     $after: String
     $query: String
   ) {
-    productsCount {
-      count
-    }
     orders(
       first: $first
       after: $after
@@ -134,13 +135,13 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
             }
           }
         }
-        returns(first: 10) {
+        returns(first: 25, reverse: true) {
           nodes {
             id
             createdAt
             returnLineItems(first: 25) {
               nodes {
-                ${RETURN_LINE_ITEM_FIELDS}
+                ${RETURN_LINE_ITEM_PRIMARY}
               }
             }
           }
@@ -150,7 +151,7 @@ const PRODUCT_INTELLIGENCE_QUERY = `#graphql
   }
 `;
 
-/** Fallback when protected fields or price sets are unavailable. */
+/** Fallback when price sets or legacy return reason fields are unavailable. */
 const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
   query ReturnGuardProductIntelligenceFallback(
     $first: Int!
@@ -182,7 +183,7 @@ const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
             }
           }
         }
-        returns(first: 10) {
+        returns(first: 25, reverse: true) {
           nodes {
             id
             createdAt
@@ -190,8 +191,10 @@ const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
               nodes {
                 ... on ReturnLineItem {
                   quantity
-                  returnReason
-                  returnReasonNote
+                  returnReasonDefinition {
+                    handle
+                    name
+                  }
                   fulfillmentLineItem {
                     lineItem {
                       id
@@ -200,6 +203,9 @@ const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
                       product {
                         id
                         title
+                      }
+                      variant {
+                        sku
                       }
                     }
                   }
@@ -212,6 +218,76 @@ const PRODUCT_INTELLIGENCE_FALLBACK_QUERY = `#graphql
     }
   }
 `;
+
+/** Last resort: product mapping only, no return reasons or prices. */
+const PRODUCT_INTELLIGENCE_MINIMAL_QUERY = `#graphql
+  query ReturnGuardProductIntelligenceMinimal(
+    $first: Int!
+    $after: String
+    $query: String
+  ) {
+    orders(
+      first: $first
+      after: $after
+      query: $query
+      sortKey: CREATED_AT
+      reverse: true
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        createdAt
+        lineItems(first: 50) {
+          nodes {
+            id
+            quantity
+            sku
+            product {
+              id
+              title
+            }
+          }
+        }
+        returns(first: 25, reverse: true) {
+          nodes {
+            id
+            createdAt
+            returnLineItems(first: 25) {
+              nodes {
+                ... on ReturnLineItem {
+                  quantity
+                  fulfillmentLineItem {
+                    lineItem {
+                      id
+                      sku
+                      title
+                      product {
+                        id
+                        title
+                      }
+                      variant {
+                        sku
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+const PRODUCT_INTELLIGENCE_QUERIES = [
+  { name: "primary", query: PRODUCT_INTELLIGENCE_QUERY },
+  { name: "fallback", query: PRODUCT_INTELLIGENCE_FALLBACK_QUERY },
+  { name: "minimal", query: PRODUCT_INTELLIGENCE_MINIMAL_QUERY },
+] as const;
 
 export function emptyProductIntelligencePage(
   query: ProductIntelligenceQuery = {},
@@ -253,7 +329,12 @@ export async function loadProductIntelligence(
   try {
     const { orders, totalProducts, currencyCode } =
       await fetchRecentReturnOrders(admin);
-    const complaintCounts = await loadComplaintCountsByOrder(shop);
+    const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
+      (error) => {
+        console.error("[ReturnGuard] product complaint counts failed", error);
+        return new Map<string, number>();
+      },
+    );
     const aggregates = aggregateProductMetrics(
       orders,
       complaintCounts,
@@ -379,10 +460,8 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
 
   const orders: GraphqlOrderNode[] = [];
   let cursor: string | null = null;
-  let totalProducts = 0;
   let currencyCode = "USD";
-
-  let useFallback = false;
+  let resolvedQuery: string | null = null;
 
   for (let page = 0; page < MAX_ORDER_PAGES; page++) {
     const variables = {
@@ -390,25 +469,25 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
       after: cursor,
       query: searchQuery,
     };
-    const payload = await loadProductIntelligencePage(admin, variables, useFallback);
-    if (payload.errors?.length) {
-      if (!useFallback) {
-        console.error(
-          "[ReturnGuard] product intelligence primary GraphQL errors",
-          payload.errors,
-        );
-        useFallback = true;
-        page -= 1;
-        continue;
+
+    let payload: ProductIntelligenceGraphqlResponse;
+    if (page === 0) {
+      const resolved = await resolveProductIntelligenceQuery(admin, variables);
+      resolvedQuery = resolved.query;
+      payload = resolved.firstPayload;
+    } else {
+      payload = await fetchProductIntelligencePayload(
+        admin,
+        variables,
+        resolvedQuery!,
+      );
+      if (payload.errors?.length) {
+        throw new Error(payload.errors[0]?.message ?? "GraphQL error");
       }
-      throw new Error(payload.errors[0]?.message ?? "GraphQL error");
     }
 
     const connection = payload.data?.orders;
     const nodes: GraphqlOrderNode[] = connection?.nodes ?? [];
-    totalProducts =
-      payload.data?.productsCount?.count ??
-      (totalProducts || countUniqueProducts(nodes));
     orders.push(...nodes);
 
     for (const order of nodes) {
@@ -425,33 +504,66 @@ async function fetchRecentReturnOrders(admin: ShopifyAdmin): Promise<{
     }
 
     if (!connection?.pageInfo?.hasNextPage) break;
-    cursor = connection.pageInfo.endCursor;
+    cursor = connection.pageInfo.endCursor ?? null;
   }
 
-  return { orders, totalProducts, currencyCode };
+  return {
+    orders,
+    totalProducts: countUniqueProducts(orders),
+    currencyCode,
+  };
 }
 
 type ProductIntelligenceGraphqlResponse = {
   data?: {
-    productsCount?: { count?: number | null } | null;
     orders?: {
       pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
       nodes?: GraphqlOrderNode[];
     } | null;
   } | null;
-  errors?: Array<{ message?: string }>;
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>;
 };
 
-async function loadProductIntelligencePage(
+async function fetchProductIntelligencePayload(
   admin: ShopifyAdmin,
   variables: Record<string, unknown>,
-  useFallback: boolean,
+  query: string,
 ): Promise<ProductIntelligenceGraphqlResponse> {
-  const query = useFallback
-    ? PRODUCT_INTELLIGENCE_FALLBACK_QUERY
-    : PRODUCT_INTELLIGENCE_QUERY;
   const response = await admin.graphql(query, { variables });
   return (await response.json()) as ProductIntelligenceGraphqlResponse;
+}
+
+async function resolveProductIntelligenceQuery(
+  admin: ShopifyAdmin,
+  variables: Record<string, unknown>,
+): Promise<{ query: string; firstPayload: ProductIntelligenceGraphqlResponse }> {
+  let lastErrors: Array<{ message?: string }> = [];
+
+  for (const tier of PRODUCT_INTELLIGENCE_QUERIES) {
+    const payload = await fetchProductIntelligencePayload(
+      admin,
+      variables,
+      tier.query,
+    );
+    if (!payload.errors?.length) {
+      if (tier.name !== "primary") {
+        console.log(
+          `[ReturnGuard] product intelligence using ${tier.name} GraphQL query`,
+        );
+      }
+      return { query: tier.query, firstPayload: payload };
+    }
+
+    lastErrors = payload.errors ?? [];
+    console.error(
+      `[ReturnGuard] product intelligence ${tier.name} GraphQL errors`,
+      payload.errors,
+    );
+  }
+
+  throw new Error(
+    lastErrors[0]?.message ?? "Unable to load Shopify return data",
+  );
 }
 
 function countUniqueProducts(orders: GraphqlOrderNode[]): number {
