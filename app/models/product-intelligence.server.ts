@@ -24,7 +24,9 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ANALYSIS_DAYS = 90;
 const ORDERS_PAGE_SIZE = 50;
-const MAX_ORDER_PAGES = 6;
+const MAX_ORDER_PAGES = 3;
+const MAX_RETURN_ORDER_PAGES = 4;
+const METRICS_CACHE_TTL_MS = 30 * 60 * 1000;
 const DEFAULT_PAGE_SIZE = 25;
 
 type ShopifyAdmin = {
@@ -311,15 +313,17 @@ export async function loadProductIntelligence(
   query: ProductIntelligenceQuery = {},
 ): Promise<ProductIntelligencePage> {
   const copy = getProductIntelligenceCopy(locale);
-  const page = Math.max(1, query.page ?? 1);
-  const pageSize = clamp(
-    query.pageSize ?? DEFAULT_PAGE_SIZE,
-    5,
-    100,
-  );
-  const sort = query.sort ?? "returnRate";
-  const sortDirection = query.sortDirection ?? "desc";
-  const search = (query.query ?? "").trim().toLowerCase();
+
+  const lastSync = await getLastMetricsSync(shop).catch(() => null);
+  if (
+    lastSync &&
+    Date.now() - lastSync.getTime() < METRICS_CACHE_TTL_MS
+  ) {
+    const cached = await loadCachedProductMetrics(shop).catch(() => []);
+    if (cached.length) {
+      return buildPageFromProducts(cached, query, locale, cached.length, copy);
+    }
+  }
 
   try {
     const { countOrders, returnOrders, totalProducts, currencyCode, analysisStartMs } =
@@ -330,88 +334,33 @@ export async function loadProductIntelligence(
         return new Map<string, number>();
       },
     );
-    const aggregates = aggregateProductMetrics(
-      countOrders,
-      returnOrders,
-      complaintCounts,
-      currencyCode,
-      analysisStartMs,
-    );
-    const products = finalizeProducts(aggregates);
-    const summary = buildSummary(products, totalProducts, currencyCode);
-    const recommendations = buildProductRecommendations(
-      products,
-      summary.averageReturnRate,
-      {
-        sizingTitle: copy.recSizingTitle,
-        sizingMessage: copy.recSizingMessage,
-        notAsDescribedTitle: copy.recNotAsDescribedTitle,
-        notAsDescribedMessage: copy.recNotAsDescribedMessage,
-        damagedTitle: copy.recDamagedTitle,
-        damagedMessage: copy.recDamagedMessage,
-        underperformingTitle: copy.recUnderperformingTitle,
-        underperformingMessage: copy.recUnderperformingMessage,
-      },
-    );
-    const insights = buildProductInsights(
-      products,
-      summary.reasonAnalysis,
-      locale,
+    const products = finalizeProducts(
+      aggregateProductMetrics(
+        countOrders,
+        returnOrders,
+        complaintCounts,
+        currencyCode,
+        analysisStartMs,
+      ),
     );
 
-    await persistProductMetrics(shop, products).catch((error) => {
+    void persistProductMetrics(shop, products).catch((error) => {
       console.error("[ReturnGuard] product metric sync failed", error);
     });
 
-    const filtered = filterProducts(products, search);
-    const sorted = sortProducts(filtered, sort, sortDirection);
-    const total = sorted.length;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const start = (safePage - 1) * pageSize;
-
-    return {
-      summary,
-      products: sorted.slice(start, start + pageSize),
-      allProducts: products,
-      recommendations,
-      insights,
-      page: safePage,
-      pageSize,
-      total,
-      totalPages,
-      sort,
-      sortDirection,
-      query: query.query ?? "",
-      error: null,
-    };
+    return buildPageFromProducts(
+      products,
+      query,
+      locale,
+      totalProducts,
+      copy,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[ReturnGuard] product intelligence failed", message, error);
     const cached = await loadCachedProductMetrics(shop).catch(() => []);
     if (cached.length) {
-      const summary = buildSummary(cached, cached.length, cached[0]?.currencyCode ?? "USD");
-      const filtered = filterProducts(cached, search);
-      const sorted = sortProducts(filtered, sort, sortDirection);
-      const total = sorted.length;
-      const totalPages = Math.max(1, Math.ceil(total / pageSize));
-      const safePage = Math.min(page, totalPages);
-      const start = (safePage - 1) * pageSize;
-      return {
-        summary,
-        products: sorted.slice(start, start + pageSize),
-        allProducts: cached,
-        recommendations: [],
-        insights: buildProductInsights(cached, summary.reasonAnalysis, locale),
-        page: safePage,
-        pageSize,
-        total,
-        totalPages,
-        sort,
-        sortDirection,
-        query: query.query ?? "",
-        error: null,
-      };
+      return buildPageFromProducts(cached, query, locale, cached.length, copy);
     }
 
     return {
@@ -427,6 +376,11 @@ export async function loadTopReturnProducts(
   shop: string,
   limit = 5,
 ): Promise<ProductReturnRow[]> {
+  const cached = await loadCachedProductMetrics(shop).catch(() => []);
+  if (cached.length) {
+    return cached.slice(0, limit);
+  }
+
   try {
     const { countOrders, returnOrders, currencyCode, analysisStartMs } =
       await fetchRecentReturnData(admin);
@@ -442,18 +396,26 @@ export async function loadTopReturnProducts(
         analysisStartMs,
       ),
     );
+    void persistProductMetrics(shop, products).catch(() => undefined);
     return [...products]
       .filter((product) => product.returnsCount > 0)
       .sort((a, b) => b.returnsCount - a.returnsCount)
       .slice(0, limit);
   } catch (error) {
     console.error("[ReturnGuard] top return products failed", error);
-    const cached = await loadCachedProductMetrics(shop).catch(() => []);
-    return cached
-      .filter((product) => product.returnsCount > 0)
-      .sort((a, b) => b.returnsCount - a.returnsCount)
-      .slice(0, limit);
+    return [];
   }
+}
+
+export function buildProductInsightCards(
+  products: ProductReturnRow[],
+  locale: Locale,
+) {
+  return buildProductInsights(
+    products,
+    buildReasonAnalysis(products.filter((product) => product.returnsCount > 0)),
+    locale,
+  );
 }
 
 async function fetchRecentReturnData(admin: ShopifyAdmin): Promise<{
@@ -466,40 +428,29 @@ async function fetchRecentReturnData(admin: ShopifyAdmin): Promise<{
   const analysisStartMs = Date.now() - ANALYSIS_DAYS * DAY_MS;
   const dateFilter = new Date(analysisStartMs).toISOString().slice(0, 10);
   const countQuery = `status:any created_at:>=${dateFilter}`;
-  const returnStatusQuery =
-    "return_status:returned OR return_status:in_progress OR return_status:inspection_complete OR return_status:return_requested";
 
-  const [countOrders, returnStatusOrders] = await Promise.all([
-    paginateOrders(admin, countQuery, ORDERS_FOR_COUNTS_QUERY),
+  const [countOrders, recentOrders] = await Promise.all([
+    paginateOrders(admin, countQuery, ORDERS_FOR_COUNTS_QUERY, MAX_ORDER_PAGES),
     paginateOrders(
       admin,
-      returnStatusQuery,
+      "status:any",
       ORDERS_WITH_RETURNS_QUERY,
-      MAX_ORDER_PAGES * 2,
-    ).catch((error) => {
-      console.error("[ReturnGuard] return_status order query failed", error);
-      return [] as GraphqlOrderNode[];
-    }),
+      MAX_RETURN_ORDER_PAGES,
+    ),
   ]);
 
-  let returnOrders = returnStatusOrders.filter(
+  const returnOrders = recentOrders.filter(
     (order) => (order.returns?.nodes?.length ?? 0) > 0,
   );
 
-  if (!returnOrders.length) {
-    const recentWithReturns = await paginateOrders(
-      admin,
-      countQuery,
-      ORDERS_WITH_RETURNS_QUERY,
-    );
-    returnOrders = recentWithReturns.filter(
-      (order) => (order.returns?.nodes?.length ?? 0) > 0,
-    );
+  const returnIds: string[] = [];
+  for (const order of returnOrders) {
+    for (const ret of order.returns?.nodes ?? []) {
+      if (new Date(ret.createdAt).getTime() < analysisStartMs) continue;
+      returnIds.push(ret.id);
+    }
   }
 
-  const returnIds = returnOrders.flatMap((order) =>
-    (order.returns?.nodes ?? []).map((ret) => ret.id),
-  );
   const lineItemsByReturnId = await fetchReturnLineItemsMap(admin, returnIds);
 
   let currencyCode = "USD";
@@ -525,6 +476,79 @@ async function fetchRecentReturnData(admin: ShopifyAdmin): Promise<{
     totalProducts: countUniqueProducts(countOrders),
     currencyCode,
     analysisStartMs,
+  };
+}
+
+async function getLastMetricsSync(shop: string): Promise<Date | null> {
+  const row = await prisma.productReturnMetric.findFirst({
+    where: { shop },
+    orderBy: { lastSyncedAt: "desc" },
+    select: { lastSyncedAt: true },
+  });
+  return row?.lastSyncedAt ?? null;
+}
+
+type ProductIntelligenceCopy = ReturnType<typeof getProductIntelligenceCopy>;
+
+function recommendationCopy(copy: ProductIntelligenceCopy) {
+  return {
+    sizingTitle: copy.recSizingTitle,
+    sizingMessage: copy.recSizingMessage,
+    notAsDescribedTitle: copy.recNotAsDescribedTitle,
+    notAsDescribedMessage: copy.recNotAsDescribedMessage,
+    damagedTitle: copy.recDamagedTitle,
+    damagedMessage: copy.recDamagedMessage,
+    underperformingTitle: copy.recUnderperformingTitle,
+    underperformingMessage: copy.recUnderperformingMessage,
+  };
+}
+
+function buildPageFromProducts(
+  products: ProductReturnRow[],
+  query: ProductIntelligenceQuery,
+  locale: Locale,
+  totalProducts: number,
+  copy: ProductIntelligenceCopy,
+): ProductIntelligencePage {
+  const page = Math.max(1, query.page ?? 1);
+  const pageSize = clamp(query.pageSize ?? DEFAULT_PAGE_SIZE, 5, 100);
+  const sort = query.sort ?? "returnRate";
+  const sortDirection = query.sortDirection ?? "desc";
+  const search = (query.query ?? "").trim().toLowerCase();
+  const currencyCode = products[0]?.currencyCode ?? "USD";
+
+  const summary = buildSummary(products, totalProducts, currencyCode);
+  const recommendations = buildProductRecommendations(
+    products,
+    summary.averageReturnRate,
+    recommendationCopy(copy),
+  );
+  const insights = buildProductInsights(
+    products,
+    summary.reasonAnalysis,
+    locale,
+  );
+  const filtered = filterProducts(products, search);
+  const sorted = sortProducts(filtered, sort, sortDirection);
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+
+  return {
+    summary,
+    products: sorted.slice(start, start + pageSize),
+    allProducts: products,
+    recommendations,
+    insights,
+    page: safePage,
+    pageSize,
+    total,
+    totalPages,
+    sort,
+    sortDirection,
+    query: query.query ?? "",
+    error: null,
   };
 }
 
@@ -946,77 +970,81 @@ async function persistProductMetrics(
   products: ProductReturnRow[],
 ): Promise<void> {
   const now = new Date();
-  for (const product of products) {
-    if (product.returnsCount === 0 && product.ordersCount === 0) continue;
+  const rows = products.filter(
+    (product) => product.returnsCount > 0 || product.ordersCount > 0,
+  );
+  if (!rows.length) return;
 
-    await prisma.productReturnMetric.upsert({
-      where: {
-        shop_productId: { shop, productId: product.productId },
-      },
-      create: {
-        shop,
-        productId: product.productId,
-        productTitle: product.productTitle,
-        sku: product.sku,
-        ordersCount: product.ordersCount,
-        returnsCount: product.returnsCount,
-        returnRate: product.returnRate,
-        revenueLost: product.revenueLost,
-        revenueAtRisk: product.revenueAtRisk,
-        revenueRecoverable: product.revenueRecoverable,
-        riskScore: product.riskScore,
-        riskLevel: product.riskLevel,
-        reasonSizing: product.reasonBreakdown.sizing,
-        reasonDamaged: product.reasonBreakdown.damaged,
-        reasonNotAsDescribed: product.reasonBreakdown.notAsDescribed,
-        reasonChangedMind: product.reasonBreakdown.changedMind,
-        reasonLateDelivery: product.reasonBreakdown.lateDelivery,
-        reasonOther: product.reasonBreakdown.other,
-        customerComplaints: product.customerComplaints,
-        currencyCode: product.currencyCode,
-        lastSyncedAt: now,
-      },
-      update: {
-        productTitle: product.productTitle,
-        sku: product.sku,
-        ordersCount: product.ordersCount,
-        returnsCount: product.returnsCount,
-        returnRate: product.returnRate,
-        revenueLost: product.revenueLost,
-        revenueAtRisk: product.revenueAtRisk,
-        revenueRecoverable: product.revenueRecoverable,
-        riskScore: product.riskScore,
-        riskLevel: product.riskLevel,
-        reasonSizing: product.reasonBreakdown.sizing,
-        reasonDamaged: product.reasonBreakdown.damaged,
-        reasonNotAsDescribed: product.reasonBreakdown.notAsDescribed,
-        reasonChangedMind: product.reasonBreakdown.changedMind,
-        reasonLateDelivery: product.reasonBreakdown.lateDelivery,
-        reasonOther: product.reasonBreakdown.other,
-        customerComplaints: product.customerComplaints,
-        currencyCode: product.currencyCode,
-        lastSyncedAt: now,
-      },
-    });
-
-    for (const point of product.returnTrend) {
-      await prisma.productReturnTrendDay.upsert({
+  await prisma.$transaction(
+    rows.map((product) =>
+      prisma.productReturnMetric.upsert({
         where: {
-          shop_productId_date: {
-            shop,
-            productId: product.productId,
-            date: point.date,
-          },
+          shop_productId: { shop, productId: product.productId },
         },
         create: {
           shop,
           productId: product.productId,
-          date: point.date,
-          count: point.count,
+          productTitle: product.productTitle,
+          sku: product.sku,
+          ordersCount: product.ordersCount,
+          returnsCount: product.returnsCount,
+          returnRate: product.returnRate,
+          revenueLost: product.revenueLost,
+          revenueAtRisk: product.revenueAtRisk,
+          revenueRecoverable: product.revenueRecoverable,
+          riskScore: product.riskScore,
+          riskLevel: product.riskLevel,
+          reasonSizing: product.reasonBreakdown.sizing,
+          reasonDamaged: product.reasonBreakdown.damaged,
+          reasonNotAsDescribed: product.reasonBreakdown.notAsDescribed,
+          reasonChangedMind: product.reasonBreakdown.changedMind,
+          reasonLateDelivery: product.reasonBreakdown.lateDelivery,
+          reasonOther: product.reasonBreakdown.other,
+          customerComplaints: product.customerComplaints,
+          currencyCode: product.currencyCode,
+          lastSyncedAt: now,
         },
-        update: { count: point.count },
-      });
-    }
+        update: {
+          productTitle: product.productTitle,
+          sku: product.sku,
+          ordersCount: product.ordersCount,
+          returnsCount: product.returnsCount,
+          returnRate: product.returnRate,
+          revenueLost: product.revenueLost,
+          revenueAtRisk: product.revenueAtRisk,
+          revenueRecoverable: product.revenueRecoverable,
+          riskScore: product.riskScore,
+          riskLevel: product.riskLevel,
+          reasonSizing: product.reasonBreakdown.sizing,
+          reasonDamaged: product.reasonBreakdown.damaged,
+          reasonNotAsDescribed: product.reasonBreakdown.notAsDescribed,
+          reasonChangedMind: product.reasonBreakdown.changedMind,
+          reasonLateDelivery: product.reasonBreakdown.lateDelivery,
+          reasonOther: product.reasonBreakdown.other,
+          customerComplaints: product.customerComplaints,
+          currencyCode: product.currencyCode,
+          lastSyncedAt: now,
+        },
+      }),
+    ),
+  );
+
+  const productIds = rows.map((product) => product.productId);
+  await prisma.productReturnTrendDay.deleteMany({
+    where: { shop, productId: { in: productIds } },
+  });
+
+  const trendRows = rows.flatMap((product) =>
+    product.returnTrend.map((point) => ({
+      shop,
+      productId: product.productId,
+      date: point.date,
+      count: point.count,
+    })),
+  );
+
+  if (trendRows.length) {
+    await prisma.productReturnTrendDay.createMany({ data: trendRows });
   }
 }
 

@@ -32,10 +32,12 @@ import {
 } from "../models/return-risk";
 import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
-import { buildProductInsights } from "../models/product-insights.server";
-import { loadProductIntelligence } from "../models/product-intelligence.server";
-import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
+import {
+  buildProductInsightCards,
+  loadTopReturnProducts,
+} from "../models/product-intelligence.server";
 import { TopReturnProductsWidget } from "../components/product-intelligence/top-products-widget";
+import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
 import { useCsvExport } from "../hooks/use-csv-export";
 import styles from "../styles/dashboard-index.module.css";
 
@@ -46,7 +48,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     sessionLocale: session.locale ?? null,
   });
 
-  const [data, onboarding, aiInsights, productPage] = await Promise.all([
+  const [data, onboarding, aiInsights, topReturnProducts] = await Promise.all([
     loadReturnRiskData(admin, session.shop, locale),
     getOnboardingProgress(session.shop).catch((error) => {
       console.error("[ReturnGuard] onboarding progress failed", error);
@@ -66,31 +68,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       console.error("[ReturnGuard] ai insights failed", error);
       return [];
     }),
-    loadProductIntelligence(admin, session.shop, locale, {
-      page: 1,
-      pageSize: 100,
-      sort: "returnsCount",
-      sortDirection: "desc",
-    }).catch((error) => {
-      console.error("[ReturnGuard] product intelligence failed", error);
-      return null;
+    loadTopReturnProducts(admin, session.shop, 5).catch((error) => {
+      console.error("[ReturnGuard] top return products failed", error);
+      return [];
     }),
   ]);
 
-  const productInsights = productPage
-    ? buildProductInsights(
-        productPage.allProducts,
-        productPage.summary.reasonAnalysis,
-        locale,
-      )
-    : [];
-  const topReturnProducts = productPage
-    ? [...productPage.allProducts]
-        .filter((product) => product.returnsCount > 0)
-        .sort((a, b) => b.returnsCount - a.returnsCount)
-        .slice(0, 5)
-    : [];
-
+  const productInsights = buildProductInsightCards(topReturnProducts, locale);
   const mergedInsights = [...productInsights, ...aiInsights].slice(0, 6);
 
   return {
@@ -99,7 +83,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     aiInsights: mergedInsights,
     topReturnProducts,
     productCurrencyCode:
-      productPage?.summary.currencyCode ?? data.summary.currencyCode,
+      topReturnProducts[0]?.currencyCode ?? data.summary.currencyCode,
     productWidgetCopy: getProductInsightsCopy(locale),
     locale,
   };
