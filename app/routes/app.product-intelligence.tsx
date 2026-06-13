@@ -36,7 +36,7 @@ import {
 } from "../models/product-intelligence.server";
 import { resolveLocale } from "../i18n/resolver.server";
 import { authenticate } from "../shopify.server";
-import type { Insight } from "../models/ai-insights.server";
+import type { Insight } from "../models/ai-insights";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);

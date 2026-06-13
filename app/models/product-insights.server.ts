@@ -1,6 +1,6 @@
 import type { Locale } from "../i18n/types";
 import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
-import type { Insight } from "./ai-insights.server";
+import type { Insight } from "./ai-insights";
 import type {
   ProductReturnRow,
   ReturnReasonAnalysis,

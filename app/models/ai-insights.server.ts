@@ -4,18 +4,11 @@ import {
   getInsightCopy,
 } from "../i18n/messages/ai-insights-copy";
 import type { Locale } from "../i18n/types";
+import type { Insight } from "./ai-insights";
+
+export type { Insight, InsightSeverity } from "./ai-insights";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-export type InsightSeverity = "success" | "info" | "attention" | "critical";
-
-export type Insight = {
-  id: string;
-  severity: InsightSeverity;
-  title: string;
-  message: string;
-  cta?: { label: string; url: string };
-};
 
 /**
  * Generate insights from local moderation data — pure statistics,

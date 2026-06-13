@@ -1,3 +1,5 @@
+import type { Insight } from "./ai-insights";
+
 export type ReturnReasonCategory =
   | "sizing"
   | "damaged"
@@ -74,7 +76,7 @@ export type ProductIntelligencePage = {
   products: ProductReturnRow[];
   allProducts: ProductReturnRow[];
   recommendations: ProductRecommendation[];
-  insights: import("./ai-insights.server").Insight[];
+  insights: Insight[];
   page: number;
   pageSize: number;
   total: number;

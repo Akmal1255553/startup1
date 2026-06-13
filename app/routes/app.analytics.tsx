@@ -26,11 +26,8 @@ import {
   type AnalyticsSummary,
   type PeriodAnalytics,
 } from "../models/analytics.server";
-import {
-  loadAiInsights,
-  type Insight,
-  type InsightSeverity,
-} from "../models/ai-insights.server";
+import { loadAiInsights } from "../models/ai-insights.server";
+import type { Insight, InsightSeverity } from "../models/ai-insights";
 import { Sparkline } from "../components/sparkline";
 import { loadCapabilities } from "../models/plan-gating.server";
 
