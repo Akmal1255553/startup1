@@ -65,7 +65,7 @@ export default function App() {
         <Links />
       </head>
       <body>
-        <I18nProvider locale={locale}>
+        <I18nProvider initialLocale={locale}>
           <Outlet />
         </I18nProvider>
         <ScrollRestoration />

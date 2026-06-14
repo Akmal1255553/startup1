@@ -1,6 +1,7 @@
 import type { Locale } from "../i18n/types";
 import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
 import type { Insight } from "./ai-insights";
+import { buildReasonAnalysis } from "./product-reason-analysis";
 import type {
   ProductReturnRow,
   ReturnReasonAnalysis,
@@ -97,6 +98,17 @@ export function buildProductInsights(
   }
 
   return insights.slice(0, 6);
+}
+
+export function buildProductInsightCards(
+  products: ProductReturnRow[],
+  locale: Locale,
+) {
+  return buildProductInsights(
+    products,
+    buildReasonAnalysis(products.filter((product) => product.returnsCount > 0)),
+    locale,
+  );
 }
 
 function dominantReasonCategory(

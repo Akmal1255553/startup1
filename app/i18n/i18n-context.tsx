@@ -1,4 +1,11 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { Locale } from "./types";
 import { getAppPagesMessages } from "./messages/app";
@@ -7,6 +14,7 @@ import { getDashboardMessages } from "./messages/dashboard";
 
 export type I18nContextValue = {
   locale: Locale;
+  setLocale: (locale: Locale) => void;
   app: ReturnType<typeof getAppShellMessages>;
   dashboard: ReturnType<typeof getDashboardMessages>;
   pages: ReturnType<typeof getAppPagesMessages>;
@@ -15,15 +23,26 @@ export type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({
-  locale,
+  initialLocale,
   children,
 }: {
-  locale: Locale;
+  initialLocale: Locale;
   children: ReactNode;
 }) {
+  const [locale, setLocale] = useState<Locale>(initialLocale);
+
+  useEffect(() => {
+    setLocale(initialLocale);
+  }, [initialLocale]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   const value = useMemo(
     () => ({
       locale,
+      setLocale,
       app: getAppShellMessages(locale),
       dashboard: getDashboardMessages(locale),
       pages: getAppPagesMessages(locale),

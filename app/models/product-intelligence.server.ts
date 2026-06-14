@@ -1,7 +1,8 @@
 import prisma from "../db.server";
 import { getProductIntelligenceCopy } from "../i18n/messages/app/product-intelligence";
 import type { Locale } from "../i18n/types";
-import { buildProductInsights } from "./product-insights.server";
+import { buildProductInsights } from "./product-insights";
+import { buildReasonAnalysis } from "./product-reason-analysis";
 import { buildProductRecommendations } from "./product-recommendations.server";
 import type {
   ProductIntelligencePage,
@@ -11,7 +12,6 @@ import type {
   ProductSortField,
   ProductTrendPoint,
   ReasonBreakdown,
-  ReturnReasonAnalysis,
 } from "./product-intelligence.types";
 import {
   categorizeReturnReason,
@@ -386,17 +386,6 @@ async function syncProductMetricsFromShopify(
 
 function countUniqueProductsFromRows(products: ProductReturnRow[]): number {
   return new Set(products.map((product) => product.productId)).size;
-}
-
-export function buildProductInsightCards(
-  products: ProductReturnRow[],
-  locale: Locale,
-) {
-  return buildProductInsights(
-    products,
-    buildReasonAnalysis(products.filter((product) => product.returnsCount > 0)),
-    locale,
-  );
 }
 
 async function fetchRecentReturnData(admin: ShopifyAdmin): Promise<{
@@ -898,31 +887,6 @@ function buildSummary(
     revenueRecoverable,
     currencyCode,
     reasonAnalysis: buildReasonAnalysis(withReturns),
-  };
-}
-
-function buildReasonAnalysis(products: ProductReturnRow[]): ReturnReasonAnalysis {
-  const totals = emptyReasonBreakdown();
-  for (const product of products) {
-    for (const key of Object.keys(totals) as Array<keyof ReasonBreakdown>) {
-      totals[key] += product.reasonBreakdown[key];
-    }
-  }
-
-  const total = Object.values(totals).reduce((sum, count) => sum + count, 0);
-  const toStat = (count: number) => ({
-    count,
-    percentage: total ? Math.round((count / total) * 100) : 0,
-  });
-
-  return {
-    sizing: toStat(totals.sizing),
-    damaged: toStat(totals.damaged),
-    notAsDescribed: toStat(totals.notAsDescribed),
-    changedMind: toStat(totals.changedMind),
-    lateDelivery: toStat(totals.lateDelivery),
-    other: toStat(totals.other),
-    total,
   };
 }
 

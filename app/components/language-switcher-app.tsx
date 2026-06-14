@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useFetcher, useLocation, useRevalidator } from "@remix-run/react";
+import { useFetcher, useLocation } from "@remix-run/react";
 import {
   ActionList,
   Box,
@@ -10,23 +10,23 @@ import {
 } from "@shopify/polaris";
 
 import { useI18n } from "../i18n/i18n-context";
-import { LOCALE_LABELS, SUPPORTED_LOCALES } from "../i18n/types";
+import { isLocale, LOCALE_LABELS, SUPPORTED_LOCALES } from "../i18n/types";
 
 type SetLocaleResponse = { ok: true; locale: string } | { ok: false };
 
 export function LanguageSwitcherApp() {
-  const { locale, app } = useI18n();
+  const { locale, setLocale, app } = useI18n();
   const location = useLocation();
   const fetcher = useFetcher<SetLocaleResponse>();
-  const revalidator = useRevalidator();
   const [open, setOpen] = useState(false);
   const isSaving = fetcher.state !== "idle";
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
-      revalidator.revalidate();
+    if (fetcher.state !== "idle" || !fetcher.data?.ok) return;
+    if (isLocale(fetcher.data.locale)) {
+      setLocale(fetcher.data.locale);
     }
-  }, [fetcher.state, fetcher.data, revalidator]);
+  }, [fetcher.state, fetcher.data, setLocale]);
 
   const go = useCallback(
     (lng: string) => {

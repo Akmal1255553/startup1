@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { useFetcher, useLoaderData } from "@remix-run/react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Badge,
   Banner,
@@ -32,10 +32,8 @@ import {
 } from "../models/return-risk";
 import { getOnboardingProgress } from "../models/onboarding.server";
 import { loadAiInsights } from "../models/ai-insights.server";
-import {
-  buildProductInsightCards,
-  loadTopReturnProducts,
-} from "../models/product-intelligence.server";
+import { loadTopReturnProducts } from "../models/product-intelligence.server";
+import { buildProductInsightCards } from "../models/product-insights";
 import { TopReturnProductsWidget } from "../components/product-intelligence/top-products-widget";
 import { getProductInsightsCopy } from "../i18n/messages/product-insights-copy";
 import { useCsvExport } from "../hooks/use-csv-export";
@@ -74,17 +72,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
-  const productInsights = buildProductInsightCards(topReturnProducts, locale);
-  const mergedInsights = [...productInsights, ...aiInsights].slice(0, 6);
-
   return {
     ...data,
     onboarding,
-    aiInsights: mergedInsights,
+    aiInsights,
     topReturnProducts,
     productCurrencyCode:
       topReturnProducts[0]?.currencyCode ?? data.summary.currencyCode,
-    productWidgetCopy: getProductInsightsCopy(locale),
     locale,
   };
 };
@@ -105,12 +99,19 @@ export default function Dashboard() {
     settings,
     recentActions,
     onboarding,
-    aiInsights,
+    aiInsights: aiInsightsFromLoader,
     topReturnProducts,
     productCurrencyCode,
-    productWidgetCopy,
   } = useLoaderData<typeof loader>();
   const { locale, dashboard: d } = useI18n();
+  const productWidgetCopy = useMemo(
+    () => getProductInsightsCopy(locale),
+    [locale],
+  );
+  const aiInsights = useMemo(() => {
+    const productInsights = buildProductInsightCards(topReturnProducts, locale);
+    return [...productInsights, ...aiInsightsFromLoader].slice(0, 6);
+  }, [topReturnProducts, aiInsightsFromLoader, locale]);
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];
   const dateLocale = getDateLocale(locale);
