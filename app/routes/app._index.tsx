@@ -79,6 +79,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     topReturnProducts,
     productCurrencyCode:
       topReturnProducts[0]?.currencyCode ?? data.summary.currencyCode,
+    productWidgetCopy: getProductInsightsCopy(locale),
     locale,
   };
 };
@@ -102,15 +103,22 @@ export default function Dashboard() {
     aiInsights: aiInsightsFromLoader,
     topReturnProducts,
     productCurrencyCode,
+    productWidgetCopy: loaderProductWidgetCopy,
   } = useLoaderData<typeof loader>();
   const { locale, dashboard: d } = useI18n();
   const productWidgetCopy = useMemo(
-    () => getProductInsightsCopy(locale),
-    [locale],
+    () =>
+      getProductInsightsCopy(locale) ??
+      loaderProductWidgetCopy ??
+      getProductInsightsCopy("en"),
+    [locale, loaderProductWidgetCopy],
   );
   const aiInsights = useMemo(() => {
-    const productInsights = buildProductInsightCards(topReturnProducts, locale);
-    return [...productInsights, ...aiInsightsFromLoader].slice(0, 6);
+    const productInsights = buildProductInsightCards(
+      topReturnProducts ?? [],
+      locale,
+    );
+    return [...productInsights, ...(aiInsightsFromLoader ?? [])].slice(0, 6);
   }, [topReturnProducts, aiInsightsFromLoader, locale]);
   const { exportCsv, isExporting, needsUpgrade } = useCsvExport();
   const topRiskOrder = [...orders].sort((a, b) => b.risk - a.risk)[0];

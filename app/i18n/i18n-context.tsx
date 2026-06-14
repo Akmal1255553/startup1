@@ -29,10 +29,12 @@ export function I18nProvider({
   initialLocale: Locale;
   children: ReactNode;
 }) {
-  const [locale, setLocale] = useState<Locale>(initialLocale);
+  const [locale, setLocale] = useState<Locale>(initialLocale ?? "en");
 
   useEffect(() => {
-    setLocale(initialLocale);
+    if (initialLocale) {
+      setLocale(initialLocale);
+    }
   }, [initialLocale]);
 
   useEffect(() => {

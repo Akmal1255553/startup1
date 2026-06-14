@@ -117,7 +117,7 @@ const PRODUCT_INSIGHTS_COPY: Record<Locale, ProductInsightsCopy> = {
 };
 
 export function getProductInsightsCopy(locale: Locale): ProductInsightsCopy {
-  return pickByLocale(PRODUCT_INSIGHTS_COPY, locale);
+  return pickByLocale(PRODUCT_INSIGHTS_COPY, locale) ?? en;
 }
 
 function formatMoney(amount: number, currencyCode: string): string {
