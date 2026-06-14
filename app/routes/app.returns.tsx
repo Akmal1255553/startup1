@@ -63,21 +63,32 @@ import { useCsvExport } from "../hooks/use-csv-export";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, billing } = await authenticate.admin(request);
-  const locale = await resolveLocale(request);
-  const capabilities = await loadCapabilities(billing, session.shop, admin);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
   const url = new URL(request.url);
   const requestedPageSize = Number(url.searchParams.get("pageSize")) || null;
-  const clampedPageSize = requestedPageSize
-    ? Math.min(requestedPageSize, capabilities.maxQueuePageSize)
-    : null;
-  const params: ReturnsQueueParams = {
+  const baseParams: ReturnsQueueParams = {
     cursor: url.searchParams.get("cursor"),
     direction: parseDirection(url.searchParams.get("direction")),
     query: url.searchParams.get("q"),
-    pageSize: clampedPageSize,
+    pageSize: null,
   };
 
-  const page = await loadReturnsQueuePage(admin, session.shop, params, locale);
+  if (requestedPageSize) {
+    const capabilities = await loadCapabilities(billing, session.shop, admin);
+    const page = await loadReturnsQueuePage(admin, session.shop, {
+      ...baseParams,
+      pageSize: Math.min(requestedPageSize, capabilities.maxQueuePageSize),
+    }, locale);
+    return { ...page, capabilities };
+  }
+
+  const [capabilities, page] = await Promise.all([
+    loadCapabilities(billing, session.shop, admin),
+    loadReturnsQueuePage(admin, session.shop, baseParams, locale),
+  ]);
   return { ...page, capabilities };
 };
 
@@ -90,7 +101,10 @@ function parseDirection(
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, billing, admin } = await authenticate.admin(request);
-  const locale = await resolveLocale(request);
+  const locale = await resolveLocale(request, {
+    authenticatedShop: session.shop,
+    sessionLocale: session.locale ?? null,
+  });
   const copy = getReturnsCopy(locale);
   const capabilities = await loadCapabilities(billing, session.shop, admin);
   let formData: FormData;

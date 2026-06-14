@@ -37,9 +37,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     authenticatedShop: session.shop,
     sessionLocale: session.locale ?? null,
   });
-  const capabilities = await loadCapabilities(billing, session.shop, admin);
   let analyticsError = false;
-  const [analytics, insights] = await Promise.all([
+  const [capabilities, analytics, insights] = await Promise.all([
+    loadCapabilities(billing, session.shop, admin),
     loadAnalytics(session.shop).catch((error) => {
       console.error("[ReturnGuard] analytics failed", error);
       analyticsError = true;

@@ -24,9 +24,9 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ANALYSIS_DAYS = 90;
 const ORDERS_PAGE_SIZE = 50;
-const MAX_ORDER_PAGES = 3;
-const MAX_RETURN_ORDER_PAGES = 4;
-const METRICS_CACHE_TTL_MS = 30 * 60 * 1000;
+const MAX_ORDER_PAGES = 2;
+const MAX_RETURN_ORDER_PAGES = 3;
+const METRICS_CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_PAGE_SIZE = 25;
 
 type ShopifyAdmin = {
@@ -313,55 +313,33 @@ export async function loadProductIntelligence(
   query: ProductIntelligenceQuery = {},
 ): Promise<ProductIntelligencePage> {
   const copy = getProductIntelligenceCopy(locale);
-
+  const cached = await loadCachedProductMetrics(shop).catch(() => []);
   const lastSync = await getLastMetricsSync(shop).catch(() => null);
-  if (
-    lastSync &&
-    Date.now() - lastSync.getTime() < METRICS_CACHE_TTL_MS
-  ) {
-    const cached = await loadCachedProductMetrics(shop).catch(() => []);
-    if (cached.length) {
-      return buildPageFromProducts(cached, query, locale, cached.length, copy);
+  const cacheFresh =
+    Boolean(lastSync) &&
+    Date.now() - lastSync!.getTime() < METRICS_CACHE_TTL_MS;
+
+  if (cached.length) {
+    if (!cacheFresh) {
+      void syncProductMetricsFromShopify(admin, shop).catch((error) => {
+        console.error("[ReturnGuard] background product sync failed", error);
+      });
     }
+    return buildPageFromProducts(cached, query, locale, cached.length, copy);
   }
 
   try {
-    const { countOrders, returnOrders, totalProducts, currencyCode, analysisStartMs } =
-      await fetchRecentReturnData(admin);
-    const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
-      (error) => {
-        console.error("[ReturnGuard] product complaint counts failed", error);
-        return new Map<string, number>();
-      },
-    );
-    const products = finalizeProducts(
-      aggregateProductMetrics(
-        countOrders,
-        returnOrders,
-        complaintCounts,
-        currencyCode,
-        analysisStartMs,
-      ),
-    );
-
-    void persistProductMetrics(shop, products).catch((error) => {
-      console.error("[ReturnGuard] product metric sync failed", error);
-    });
-
+    const products = await syncProductMetricsFromShopify(admin, shop);
     return buildPageFromProducts(
       products,
       query,
       locale,
-      totalProducts,
+      countUniqueProductsFromRows(products),
       copy,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[ReturnGuard] product intelligence failed", message, error);
-    const cached = await loadCachedProductMetrics(shop).catch(() => []);
-    if (cached.length) {
-      return buildPageFromProducts(cached, query, locale, cached.length, copy);
-    }
 
     return {
       ...emptyProductIntelligencePage(query),
@@ -372,39 +350,42 @@ export async function loadProductIntelligence(
 }
 
 export async function loadTopReturnProducts(
-  admin: ShopifyAdmin,
+  _admin: ShopifyAdmin,
   shop: string,
   limit = 5,
 ): Promise<ProductReturnRow[]> {
   const cached = await loadCachedProductMetrics(shop).catch(() => []);
-  if (cached.length) {
-    return cached.slice(0, limit);
-  }
+  return cached.slice(0, limit);
+}
 
-  try {
-    const { countOrders, returnOrders, currencyCode, analysisStartMs } =
-      await fetchRecentReturnData(admin);
-    const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
-      () => new Map<string, number>(),
-    );
-    const products = finalizeProducts(
-      aggregateProductMetrics(
-        countOrders,
-        returnOrders,
-        complaintCounts,
-        currencyCode,
-        analysisStartMs,
-      ),
-    );
-    void persistProductMetrics(shop, products).catch(() => undefined);
-    return [...products]
-      .filter((product) => product.returnsCount > 0)
-      .sort((a, b) => b.returnsCount - a.returnsCount)
-      .slice(0, limit);
-  } catch (error) {
-    console.error("[ReturnGuard] top return products failed", error);
-    return [];
-  }
+async function syncProductMetricsFromShopify(
+  admin: ShopifyAdmin,
+  shop: string,
+): Promise<ProductReturnRow[]> {
+  const { countOrders, returnOrders, currencyCode, analysisStartMs } =
+    await fetchRecentReturnData(admin);
+  const complaintCounts = await loadComplaintCountsByOrder(shop).catch(
+    () => new Map<string, number>(),
+  );
+  const products = finalizeProducts(
+    aggregateProductMetrics(
+      countOrders,
+      returnOrders,
+      complaintCounts,
+      currencyCode,
+      analysisStartMs,
+    ),
+  );
+
+  void persistProductMetrics(shop, products).catch((error) => {
+    console.error("[ReturnGuard] product metric sync failed", error);
+  });
+
+  return products;
+}
+
+function countUniqueProductsFromRows(products: ProductReturnRow[]): number {
+  return new Set(products.map((product) => product.productId)).size;
 }
 
 export function buildProductInsightCards(

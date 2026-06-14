@@ -68,8 +68,8 @@ export type ActiveSubscriptionSummary = {
   isTest: boolean;
 };
 
-const IS_TEST_TTL_MS = 5 * 60 * 1000;
-const SUBSCRIPTION_TTL_MS = 90 * 1000;
+const IS_TEST_TTL_MS = 15 * 60 * 1000;
+const SUBSCRIPTION_TTL_MS = 5 * 60 * 1000;
 
 const isTestCache = new Map<string, { value: boolean; expiresAt: number }>();
 const subscriptionCache = new Map<
