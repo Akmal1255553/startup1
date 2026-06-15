@@ -8,6 +8,8 @@ import { json, redirect } from "@remix-run/node";
 import { Form, useLoaderData } from "@remix-run/react";
 
 import { marketingHeaders } from "../../lib/marketing-headers.server";
+import { SHOPIFY_APP_STORE_URL } from "../../lib/shopify-app-store";
+import { PLANS } from "../../billing/plans";
 import { LanguageSwitcherMarketing } from "../../components/language-switcher-marketing";
 import { useI18n } from "../../i18n/i18n-context";
 import { getLandingCopy } from "../../i18n/messages/landing";
@@ -84,6 +86,9 @@ export default function Index() {
             </a>
             <a className={styles.navItem} href="#workflow">
               {L.navWorkflow}
+            </a>
+            <a className={styles.navItem} href="#pricing">
+              {L.navPricing}
             </a>
             <a className={styles.navItem} href="#install">
               {L.navInstall}
@@ -236,6 +241,81 @@ export default function Index() {
                 <p className={styles.featureText}>{f.description}</p>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section
+          className={styles.pricing}
+          id="pricing"
+          aria-labelledby="pricing-heading"
+        >
+          <div className={styles.pricingHead}>
+            <h2 id="pricing-heading" className={styles.pricingTitle}>
+              {L.pricingTitle}
+            </h2>
+            <p className={styles.pricingLead}>{L.pricingLead}</p>
+          </div>
+          <div className={styles.pricingGrid}>
+            {L.pricingPlans.map((planCopy, index) => {
+              const plan = PLANS[index];
+              const isPopular = Boolean(plan?.recommended);
+
+              return (
+                <article
+                  key={planCopy.name}
+                  className={
+                    isPopular
+                      ? `${styles.pricingCard} ${styles.pricingCardPopular}`
+                      : styles.pricingCard
+                  }
+                >
+                  {isPopular ? (
+                    <span className={styles.pricingBadge}>
+                      {L.pricingMostPopular}
+                    </span>
+                  ) : null}
+                  <p className={styles.pricingPlanName}>{planCopy.name}</p>
+                  <p className={styles.pricingPrice}>
+                    <span className={styles.pricingAmount}>
+                      ${plan?.monthlyPrice ?? 0}
+                    </span>
+                    <span className={styles.pricingPeriod}>
+                      {L.pricingPerMonth}
+                    </span>
+                  </p>
+                  <p className={styles.pricingHighlight}>
+                    <span className={styles.pricingHighlightIcon} aria-hidden="true">
+                      ✓
+                    </span>
+                    {planCopy.highlight}
+                  </p>
+                  <ul className={styles.pricingFeatures}>
+                    {planCopy.features.map((feature) => (
+                      <li key={feature}>{feature}</li>
+                    ))}
+                  </ul>
+                  <div className={styles.pricingDivider} aria-hidden="true" />
+                  <p className={styles.pricingSupport}>
+                    <span className={styles.pricingCheck} aria-hidden="true">
+                      ✓
+                    </span>
+                    {planCopy.support}
+                  </p>
+                  <a
+                    className={
+                      isPopular
+                        ? styles.pricingBtnPrimary
+                        : styles.pricingBtnSecondary
+                    }
+                    href={SHOPIFY_APP_STORE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {L.pricingBtnInstall}
+                  </a>
+                </article>
+              );
+            })}
           </div>
         </section>
 

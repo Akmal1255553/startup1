@@ -1,7 +1,7 @@
-import type { LandingCopy } from "../messages/landing";
+import type { LandingBaseCopy } from "../messages/landing";
 import type { Locale } from "../types";
 
-const en: LandingCopy = {
+const en: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Returns intelligence for Shopify",
   metaDescription:
     "ReturnGuard AI helps Shopify teams flag risky returns, protect margins, and keep refunds moving fast.",
@@ -114,7 +114,7 @@ const en: LandingCopy = {
   langLabel: "Language",
 };
 
-const ru: LandingCopy = {
+const ru: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Контроль возвратов для Shopify",
   metaDescription:
     "ReturnGuard AI помогает командам Shopify выявлять рискованные возвраты, защищать маржу и ускорять решения по возвратам.",
@@ -227,7 +227,7 @@ const ru: LandingCopy = {
   langLabel: "Язык",
 };
 
-const es: LandingCopy = {
+const es: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Inteligencia de devoluciones para Shopify",
   metaDescription:
     "ReturnGuard AI ayuda a los equipos de Shopify a detectar devoluciones de riesgo, proteger márgenes y agilizar los reembolsos.",
@@ -340,7 +340,7 @@ const es: LandingCopy = {
   langLabel: "Idioma",
 };
 
-const de: LandingCopy = {
+const de: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Retouren-Intelligence für Shopify",
   metaDescription:
     "ReturnGuard AI hilft Shopify-Teams, riskante Retouren zu erkennen, Margen zu schützen und Erstattungen zügig abzuwickeln.",
@@ -453,7 +453,7 @@ const de: LandingCopy = {
   langLabel: "Sprache",
 };
 
-const fr: LandingCopy = {
+const fr: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Intelligence retours pour Shopify",
   metaDescription:
     "ReturnGuard AI aide les équipes Shopify à repérer les retours à risque, protéger les marges et accélérer les remboursements.",
@@ -566,7 +566,7 @@ const fr: LandingCopy = {
   langLabel: "Langue",
 };
 
-const ptBR: LandingCopy = {
+const ptBR: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Inteligência de devoluções para Shopify",
   metaDescription:
     "O ReturnGuard AI ajuda equipes Shopify a sinalizar devoluções arriscadas, proteger margens e manter reembolsos ágeis.",
@@ -679,7 +679,7 @@ const ptBR: LandingCopy = {
   langLabel: "Idioma",
 };
 
-const ja: LandingCopy = {
+const ja: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Shopify向け返品インテリジェンス",
   metaDescription:
     "ReturnGuard AIはShopifyチームがリスクの高い返品を検知し、マージンを守り、返金処理を迅速に進めるのを支援します。",
@@ -792,7 +792,7 @@ const ja: LandingCopy = {
   langLabel: "言語",
 };
 
-const it: LandingCopy = {
+const it: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Intelligence sui resi per Shopify",
   metaDescription:
     "ReturnGuard AI aiuta i team Shopify a segnalare resi rischiosi, proteggere i margini e accelerare i rimborsi.",
@@ -905,7 +905,7 @@ const it: LandingCopy = {
   langLabel: "Lingua",
 };
 
-const nl: LandingCopy = {
+const nl: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Retourintelligentie voor Shopify",
   metaDescription:
     "ReturnGuard AI helpt Shopify-teams risicovolle retouren te signaleren, marges te beschermen en terugbetalingen vlot te houden.",
@@ -1018,7 +1018,7 @@ const nl: LandingCopy = {
   langLabel: "Taal",
 };
 
-const ko: LandingCopy = {
+const ko: LandingBaseCopy = {
   metaTitle: "ReturnGuard AI | Shopify 반품 인텔리전스",
   metaDescription:
     "ReturnGuard AI는 Shopify 팀이 위험한 반품을 표시하고, 마진을 보호하며, 환불 처리를 빠르게 유지하도록 돕습니다.",
@@ -1131,7 +1131,7 @@ const ko: LandingCopy = {
   langLabel: "언어",
 };
 
-export const LANDING_COPY: Record<Locale, LandingCopy> = {
+export const LANDING_COPY: Record<Locale, LandingBaseCopy> = {
   en,
   ru,
   es,

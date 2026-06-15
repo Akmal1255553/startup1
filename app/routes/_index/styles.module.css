@@ -696,6 +696,230 @@
   color: var(--ink-soft);
 }
 
+/* —— Pricing —— */
+.pricing {
+  padding: 0 clamp(1.25rem, 4vw, 3rem) clamp(4.5rem, 9vw, 6.5rem);
+  max-width: 72rem;
+  margin: 0 auto;
+}
+
+.pricingHead {
+  text-align: center;
+  max-width: 42rem;
+  margin: 0 auto clamp(2.5rem, 5vw, 3.5rem);
+}
+
+.pricingTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.85rem, 3.8vw, 2.75rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.pricingLead {
+  margin: 1rem 0 0;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.pricingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.pricingCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 1.75rem 1.5rem 1.5rem;
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.pricingCardPopular {
+  border-color: rgb(10 92 82 / 0.35);
+  box-shadow:
+    0 0 0 1px rgb(10 92 82 / 0.12),
+    0 12px 40px rgb(10 92 82 / 0.12);
+  transform: translateY(-0.25rem);
+}
+
+.pricingBadge {
+  position: absolute;
+  top: -0.7rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(145deg, var(--teal) 0%, var(--teal-deep) 100%);
+  white-space: nowrap;
+}
+
+.pricingPlanName {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.pricingPrice {
+  margin: 0.75rem 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+}
+
+.pricingAmount {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 4vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.pricingPeriod {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.pricingHighlight {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 1.25rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: var(--radius-md);
+  background: rgb(10 92 82 / 0.08);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--teal-deep);
+}
+
+.pricingHighlightIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  background: var(--teal);
+}
+
+.pricingFeatures {
+  list-style: none;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+  flex: 1;
+}
+
+.pricingFeatures li {
+  position: relative;
+  padding-left: 1.35rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.pricingFeatures li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0.05rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.pricingDivider {
+  margin: 1.15rem 0;
+  height: 1px;
+  background: var(--line);
+}
+
+.pricingSupport {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--teal-deep);
+}
+
+.pricingCheck {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.pricingBtnPrimary,
+.pricingBtnSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.25rem;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-decoration: none;
+  text-align: center;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pricingBtnPrimary {
+  color: #fff;
+  background: linear-gradient(145deg, var(--teal) 0%, var(--teal-deep) 100%);
+  box-shadow: 0 4px 16px rgb(10 92 82 / 0.25);
+}
+
+.pricingBtnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgb(10 92 82 / 0.3);
+}
+
+.pricingBtnSecondary {
+  color: var(--ink);
+  background: rgb(11 18 16 / 0.05);
+  border: 1px solid var(--line);
+}
+
+.pricingBtnSecondary:hover {
+  background: rgb(11 18 16 / 0.08);
+  transform: translateY(-1px);
+}
+
 /* —— Workflow —— */
 .workflow {
   padding: 0 clamp(1.25rem, 4vw, 3rem) clamp(4.5rem, 9vw, 6.5rem);
@@ -930,8 +1154,13 @@
 
   .metricsInner,
   .featureGrid,
+  .pricingGrid,
   .steps {
     grid-template-columns: 1fr;
+  }
+
+  .pricingCardPopular {
+    transform: none;
   }
 
   .metricCard {
