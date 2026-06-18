@@ -9,6 +9,8 @@ import {
   useLoaderData,
 } from "@remix-run/react";
 
+import { Analytics } from "@vercel/analytics/remix";
+
 import { I18nProvider } from "./i18n/i18n-context";
 import { readLocaleCookie } from "./i18n/locale-cookie.server";
 import { resolveLocale } from "./i18n/resolver.server";
@@ -70,6 +72,7 @@ export default function App() {
         </I18nProvider>
         <ScrollRestoration />
         <Scripts />
+        <Analytics />
       </body>
     </html>
   );
