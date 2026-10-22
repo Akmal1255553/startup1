@@ -1,5 +1,16 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { Form, useActionData, useLoaderData, useNavigation } from "@remix-run/react";
+import type {
+  ActionFunctionArgs,
+  HeadersFunction,
+  LoaderFunctionArgs,
+} from "@remix-run/node";
+import {
+  Form,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+  useRouteError,
+} from "@remix-run/react";
+import { boundary } from "@shopify/shopify-app-remix/server";
 import {
   Badge,
   Banner,
@@ -27,6 +38,7 @@ import {
 import { useI18n } from "../i18n/i18n-context";
 import {
   checkActiveSubscription,
+  invalidateSubscriptionCache,
   resolveBillingIsTestForShop,
 } from "../models/billing.server";
 
@@ -38,6 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const subscription = await checkActiveSubscription(billing, {
       shop: session.shop,
       isTest,
+      fresh: true,
     });
 
     return {
@@ -45,8 +58,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       hasActivePayment: subscription.hasActivePayment,
       subscriptionId: subscription.subscriptionId,
       isTestMode: isTest,
+      loadError: null,
     };
   } catch (error) {
+    if (error instanceof Response) throw error;
     console.error("[ReturnGuard] billing loader failed", error);
     return {
       activePlan: null,
@@ -84,6 +99,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } catch (error) {
       // Preserve Remix redirects and App Bridge billing handoff responses.
       if (error instanceof Response) {
+        invalidateSubscriptionCache(session.shop);
         throw error;
       }
       const payload = formatBillingError(error, requestedPlan);
@@ -109,8 +125,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         isTest,
         prorate: true,
       });
+      invalidateSubscriptionCache(session.shop);
       return { ok: true, cancelled: true };
     } catch (error) {
+      if (error instanceof Response) throw error;
       return {
         ok: false,
         error:
@@ -124,14 +142,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   return { ok: false, error: "Unknown intent." };
 };
 
+// Billing uses 401 + App Bridge headers to leave the iframe for confirmation.
+// Keep both exports on this route so action responses retain those headers.
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
+
+export const headers: HeadersFunction = (args) => boundary.headers(args);
+
 /**
  * Categorize the BillingError so the UI can show a targeted banner.
  *
  *  - `public-distribution` → app is on Custom distribution. Shopify rejects
  *    Billing API entirely until distribution is set to Public in Partner
  *    Dashboard, even on dev stores in test mode.
- *  - `test-mismatch`       → live store with isTest=true, or dev store with
- *    isTest=false.
+ *  - `test-mismatch`       → Shopify rejects the requested test configuration.
  *  - `generic`             → anything else, with errorData appended.
  */
 type BillingErrorKind =
@@ -173,7 +198,7 @@ function formatBillingError(
     return {
       kind: "test-mismatch",
       message: detail
-        ? `${error.message} (${planId}): ${detail}. Set BILLING_TEST=true on Render if you're on a development store, or BILLING_TEST=false on a live store.`
+        ? `${error.message} (${planId}): ${detail}. Please contact support to check the billing configuration for this store.`
         : `${error.message} (${planId}).`,
       detail,
     };
@@ -228,7 +253,9 @@ export default function BillingPage() {
     isTestMode,
     loadError,
   } = useLoaderData<typeof loader>();
-  const { pages: { billing: b, common: c } } = useI18n();
+  const {
+    pages: { billing: b, common: c },
+  } = useI18n();
   const plans = b.getPlans();
   const actionData = useActionData<typeof action>();
   const shopify = useAppBridge();
@@ -245,11 +272,11 @@ export default function BillingPage() {
     actionData && "error" in actionData ? actionData.error : null;
   const errorKind =
     actionData && "errorKind" in actionData
-      ? (actionData as { errorKind?: BillingErrorKind }).errorKind ?? null
+      ? ((actionData as { errorKind?: BillingErrorKind }).errorKind ?? null)
       : null;
   const errorShop =
     actionData && "shop" in actionData
-      ? (actionData as { shop?: string }).shop ?? null
+      ? ((actionData as { shop?: string }).shop ?? null)
       : null;
   const cancelled =
     actionData && "cancelled" in actionData ? actionData.cancelled : false;
@@ -339,7 +366,9 @@ function CurrentPlanCard({
   subscriptionId: string | null;
   isSubmitting: boolean;
 }) {
-  const { pages: { billing: b } } = useI18n();
+  const {
+    pages: { billing: b },
+  } = useI18n();
   const planDescriptor = activePlan
     ? b.getPlans().find((plan) => plan.id === activePlan)
     : null;
@@ -379,11 +408,7 @@ function CurrentPlanCard({
             }}
           >
             <input type="hidden" name="intent" value="cancel" />
-            <input
-              type="hidden"
-              name="subscriptionId"
-              value={subscriptionId}
-            />
+            <input type="hidden" name="subscriptionId" value={subscriptionId} />
             <Button
               submit
               tone="critical"
@@ -410,16 +435,13 @@ function BillingErrorBanner({
 }) {
   if (kind === "public-distribution") {
     return (
-      <Banner
-        title="Billing API requires Public Distribution"
-        tone="warning"
-      >
+      <Banner title="Billing API requires Public Distribution" tone="warning">
         <BlockStack gap="200">
           <Text as="p" variant="bodyMd">
-            Shopify only lets apps charge merchants through the Billing API
-            once they're set to <strong>Public distribution</strong> in the
-            Partner Dashboard — even on development stores. Apps on Custom
-            distribution must use Managed Pricing instead.
+            Shopify only lets apps charge merchants through the Billing API once
+            they're set to <strong>Public distribution</strong> in the Partner
+            Dashboard — even on development stores. Apps on Custom distribution
+            must use Managed Pricing instead.
           </Text>
           <Text as="p" variant="bodyMd">
             <strong>Fix it in 30 seconds:</strong>
@@ -440,8 +462,8 @@ function BillingErrorBanner({
             </List.Item>
             <List.Item>
               Click <strong>Choose distribution</strong> →{" "}
-              <strong>Public distribution</strong> → <strong>Save</strong>.
-              You don't need to finish the App Store listing yet — Billing API
+              <strong>Public distribution</strong> → <strong>Save</strong>. You
+              don't need to finish the App Store listing yet — Billing API
               starts working as soon as distribution is set.
             </List.Item>
             <List.Item>Come back here and pick a plan again.</List.Item>
@@ -478,17 +500,17 @@ function BillingErrorBanner({
           </Text>
           <List type="bullet" gap="extraTight">
             <List.Item>
-              <strong>Development store</strong> — use a Partner dev store on Basic
-              plan; test charges are applied automatically.
+              <strong>Development store</strong> — use a Partner dev store on
+              Basic plan; test charges are applied automatically.
             </List.Item>
             <List.Item>
-              <strong>Live store on Shopify Trial</strong> — the merchant must pick a
-              paid Shopify plan and add a billing method in Settings → Plan before
-              approving app charges.
+              <strong>Live store on Shopify Trial</strong> — the merchant must
+              pick a paid Shopify plan and add a billing method in Settings →
+              Plan before approving app charges.
             </List.Item>
             <List.Item>
-              <strong>Pricing in Partners</strong> — plan handles and amounts must
-              match Starter $9, Growth $29, Scale $79 (21-day trial).
+              <strong>Pricing in Partners</strong> — plan handles and amounts
+              must match Starter $9, Growth $29, Scale $79 (21-day trial).
             </List.Item>
           </List>
           <Text as="p" variant="bodySm" tone="subdued">
@@ -521,7 +543,9 @@ function PlanCard({
   isSubmitting: boolean;
   pendingPlan: string | null;
 }) {
-  const { pages: { billing: b } } = useI18n();
+  const {
+    pages: { billing: b },
+  } = useI18n();
   const isCurrent = hasActivePayment && plan.id === activePlan;
   const isPending = pendingPlan === plan.id;
   // While one card is being submitted, freeze the other cards so the
@@ -536,7 +560,13 @@ function PlanCard({
 
   return (
     <Card
-      background={isCurrent ? "bg-surface-success" : isPending ? "bg-surface-selected" : undefined}
+      background={
+        isCurrent
+          ? "bg-surface-success"
+          : isPending
+            ? "bg-surface-selected"
+            : undefined
+      }
     >
       <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center" gap="200">

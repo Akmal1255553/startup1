@@ -46,9 +46,15 @@ export async function resolveLocale(
 
   const url = new URL(request.url);
   const shop = options?.authenticatedShop ?? shopFromRequestUrl(url);
-  if (shop) {
-    const fromShop = await readShopLocale(shop);
-    if (fromShop) return fromShop;
+  // Explicit null means the authenticated session has no saved preference.
+  // Do not query the same session again just to discover that a second time.
+  if (shop && options?.sessionLocale === undefined) {
+    try {
+      const fromShop = await readShopLocale(shop);
+      if (fromShop) return fromShop;
+    } catch {
+      console.warn("[ReturnGuard] locale lookup unavailable; using fallback");
+    }
   }
 
   // Embedded admin: default English until the merchant picks a language in-app

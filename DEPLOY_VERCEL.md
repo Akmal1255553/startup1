@@ -38,7 +38,7 @@ In **Project Settings → Environment Variables**, add:
 | `SHOPIFY_API_SECRET` | Same place |
 | `SHOPIFY_APP_URL` | `https://<your-project>.vercel.app` (no trailing slash) |
 | `SCOPES` | `read_orders,read_returns,read_products,read_customers` |
-| `BILLING_TEST` | `true` for dev/partner stores; `false` for live merchants |
+| `BILLING_TEST` | Legacy setting, no longer used. Production uses real subscriptions for regular stores; Shopify development stores are automatically kept in test mode. |
 
 ### Database URL for serverless
 
@@ -92,7 +92,7 @@ npm run vercel-build   # prisma migrate deploy + remix vite:build
 2. Install on a dev store via the install form.
 3. Open the app in Shopify Admin — embedded UI works.
 4. Trigger a webhook (e.g. order create) — check Vercel **Functions** logs for 200 responses.
-5. **Billing** page shows **Test mode** when `BILLING_TEST=true`.
+5. **Billing** page shows **Test mode** on Shopify development stores. Regular stores use real subscriptions in production; the legacy `BILLING_TEST` variable is ignored.
 
 ## 8. Shut down Render (optional)
 
@@ -110,7 +110,7 @@ After Vercel is stable:
 | OAuth loop / login page in iframe | Disable Vercel Authentication; check `SHOPIFY_APP_URL` matches the Vercel domain exactly. |
 | `ReadableStream` / streaming errors | Project uses `@vercel/remix` preset — redeploy after pulling latest code. |
 | DB connection timeouts (P2024) | Use Supabase transaction pooler (6543) or increase pool size on Vercel Postgres. |
-| Billing test errors | Match `BILLING_TEST` to store type (dev store → `true`). |
+| Billing test errors | Check the store type returned by Shopify. Development stores use test charges automatically; regular production stores use real subscriptions. |
 
 ## Local development (unchanged)
 

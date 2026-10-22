@@ -11,24 +11,11 @@ import {
 /**
  * Whether to issue Shopify Billing requests in test mode.
  *
- * Shopify's billing API has a strict rule:
- *   - Development / partner / staff stores can only accept TEST charges.
- *   - Production / live merchant stores can only accept REAL charges.
- * Sending the wrong flag returns `Error while billing the store` from
- * `appSubscriptionCreate`.
- *
- * Until the app is approved in the App Store, we'll mostly be installed on
- * development stores, so the safe default is `isTest: true`. Once you're
- * live and listed, set BILLING_TEST=false in Render to charge real merchants.
- *
- * Precedence:
- *   1. BILLING_TEST=true|false  (explicit override)
- *   2. NODE_ENV !== "production" (legacy default — true in dev)
+ * Production uses real subscriptions for regular merchant stores.
+ * Local development and Shopify development stores keep test charges.
+ * Legacy BILLING_TEST values no longer override the production setting.
  */
-function resolveBillingTestMode(): boolean {
-  const raw = process.env.BILLING_TEST;
-  if (raw === "true" || raw === "1") return true;
-  if (raw === "false" || raw === "0") return false;
+export function resolveBillingTestMode(): boolean {
   return process.env.NODE_ENV !== "production";
 }
 
@@ -36,10 +23,13 @@ export const BILLING_TEST_MODE = resolveBillingTestMode();
 
 export const KNOWN_PLAN_IDS: PlanId[] = [PLAN_STARTER, PLAN_GROWTH, PLAN_SCALE];
 
-type ShopPlanSnapshot = {
-  partnerDevelopment?: boolean;
-  displayName?: string | null;
-} | null | undefined;
+type ShopPlanSnapshot =
+  | {
+      partnerDevelopment?: boolean;
+      displayName?: string | null;
+    }
+  | null
+  | undefined;
 
 /** True for Partner dev stores and similar — they must use test charges only. */
 export function isDevelopmentShopPlan(plan: ShopPlanSnapshot): boolean {
@@ -91,7 +81,7 @@ function cacheBillingIsTest(shop: string, isTest: boolean) {
 }
 
 /**
- * Dev stores always get test charges; live stores follow BILLING_TEST on Render.
+ * Dev stores always get test charges; regular production stores use real billing.
  */
 export async function resolveBillingIsTestForShop(
   admin: BillingAdminGraphql,
@@ -100,8 +90,9 @@ export async function resolveBillingIsTestForShop(
   const cached = getCachedBillingIsTest(shop);
   if (cached !== undefined) return cached;
 
-  try {
-    const response = await admin.graphql(`#graphql
+  // Propagate lookup failures, including Shopify authentication handoffs.
+  // Never guess a live billing mode when the store type could not be checked.
+  const response = await admin.graphql(`#graphql
       query BillingShopPlan {
         shop {
           plan {
@@ -111,19 +102,20 @@ export async function resolveBillingIsTestForShop(
         }
       }
     `);
-    const json = (await response.json()) as {
-      data?: {
-        shop?: {
-          plan?: { partnerDevelopment?: boolean; displayName?: string };
-        };
+  const json = (await response.json()) as {
+    data?: {
+      shop?: {
+        plan?: { partnerDevelopment?: boolean; displayName?: string };
       };
     };
-    if (isDevelopmentShopPlan(json.data?.shop?.plan)) {
-      cacheBillingIsTest(shop, true);
-      return true;
-    }
-  } catch {
-    // Use env default when plan lookup fails.
+  };
+  const plan = json.data?.shop?.plan;
+  if (!response.ok || typeof plan?.partnerDevelopment !== "boolean") {
+    throw new Error("Unable to verify store billing mode. Please try again.");
+  }
+  if (isDevelopmentShopPlan(plan)) {
+    cacheBillingIsTest(shop, true);
+    return true;
   }
 
   cacheBillingIsTest(shop, BILLING_TEST_MODE);
@@ -131,10 +123,7 @@ export async function resolveBillingIsTestForShop(
 }
 
 type AdminBilling = {
-  check: (options: {
-    plans: PlanId[];
-    isTest: boolean;
-  }) => Promise<{
+  check: (options: { plans: PlanId[]; isTest: boolean }) => Promise<{
     hasActivePayment: boolean;
     appSubscriptions: Array<{ id: string; name: string; test?: boolean }>;
   }>;
@@ -143,11 +132,11 @@ type AdminBilling = {
 /** Cached wrapper around billing.check — shared by billing page and plan gating. */
 export async function checkActiveSubscription(
   billing: AdminBilling,
-  options: { shop: string; isTest: boolean },
+  options: { shop: string; isTest: boolean; fresh?: boolean },
 ): Promise<ActiveSubscriptionSummary> {
   const cacheKey = `${options.shop}:${options.isTest}`;
   const hit = subscriptionCache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  if (!options.fresh && hit && hit.expiresAt > Date.now()) return hit.value;
 
   const result = await billing.check({
     plans: KNOWN_PLAN_IDS,
@@ -159,6 +148,11 @@ export async function checkActiveSubscription(
     expiresAt: Date.now() + SUBSCRIPTION_TTL_MS,
   });
   return summary;
+}
+
+export function invalidateSubscriptionCache(shop: string): void {
+  subscriptionCache.delete(`${shop}:true`);
+  subscriptionCache.delete(`${shop}:false`);
 }
 
 /**

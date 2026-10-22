@@ -10,9 +10,7 @@ import {
 } from "@remix-run/react";
 
 import { I18nProvider } from "./i18n/i18n-context";
-import { readLocaleCookie } from "./i18n/locale-cookie.server";
 import { resolveLocale } from "./i18n/resolver.server";
-import { readShopLocale, shopFromRequestUrl } from "./i18n/shop-locale.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
@@ -22,29 +20,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({ locale: "en" as const });
   }
 
-  let authenticatedShop: string | undefined;
-  let sessionLocale: string | null | undefined;
-
-  // Avoid authenticate.admin here — app routes already auth once; a second
-  // round-trip per page load slowed the embedded UI and was unnecessary for locale.
-  if (url.pathname.startsWith("/app")) {
-    const cookieLocale = await readLocaleCookie(request.headers.get("Cookie"));
-    if (!cookieLocale) {
-      authenticatedShop = shopFromRequestUrl(url) ?? undefined;
-      if (authenticatedShop) {
-        try {
-          sessionLocale = await readShopLocale(authenticatedShop);
-        } catch (error) {
-          console.error("[ReturnGuard] readShopLocale failed", error);
-        }
-      }
-    }
-  }
-
-  const locale = await resolveLocale(request, {
-    authenticatedShop,
-    sessionLocale,
-  });
+  const locale = await resolveLocale(request);
   return json({ locale });
 };
 
@@ -69,6 +45,29 @@ export default function App() {
           <Outlet />
         </I18nProvider>
         <ScrollRestoration />
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+// Keep recovery independent of providers and loader data: either can have failed.
+export function ErrorBoundary() {
+  return (
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>ReturnGuard AI — Unable to load</title>
+        <Links />
+      </head>
+      <body>
+        <main style={{ maxWidth: 560, margin: "64px auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+          <h1>ReturnGuard AI couldn't load this page</h1>
+          <p>Please wait a moment and try again. If you just submitted a change, check its status before submitting it again.</p>
+          <button type="button" onClick={() => window.location.replace(window.location.href)}>Try again</button>
+          <p>If the problem continues, reopen ReturnGuard AI from Shopify Admin.</p>
+        </main>
         <Scripts />
       </body>
     </html>

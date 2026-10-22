@@ -322,8 +322,9 @@ export async function loadReturnRiskData(
   shop: string,
   locale: Locale = "en",
 ): Promise<DashboardData> {
+  let settings = defaultRiskSettings;
   try {
-    const settings = await getRiskSettings(shop);
+    settings = await getRiskSettings(shop);
     const payload = await loadOrdersWithFallback(admin);
 
     if (payload.errors?.length) {
@@ -395,18 +396,10 @@ export async function loadReturnRiskData(
     });
   } catch (error) {
     console.error("[ReturnGuard] loadReturnRiskData failed", error);
-    let settings = defaultRiskSettings;
-    try {
-      settings = await getRiskSettings(shop);
-    } catch {
-      // Keep defaults when the DB is temporarily unavailable.
-    }
     return buildDashboardData(
       [],
       settings,
-      error instanceof Error
-        ? error.message
-        : "Unable to load dashboard data. Please refresh.",
+      "Dashboard data is temporarily unavailable. Please try again shortly.",
     );
   }
 }
